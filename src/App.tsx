@@ -17,7 +17,6 @@ import {
     where,
     writeBatch,
 } from 'firebase/firestore'
-import * as XLSX from 'xlsx'
 import { auth, db, firebaseReady } from './firebase'
 import './App.css'
 
@@ -30,6 +29,10 @@ interface InspectionRecord {
     id: number
     firestoreId?: string
     ownerId?: string
+    createdAt?: string
+    updatedAt?: string
+    createdByEmail?: string
+    updatedByEmail?: string
     uh: string
     status: InspectionStatus
     date: string
@@ -107,6 +110,25 @@ const formatMonthBR = (month: string) => {
     return `${monthValue}/${year}`
 }
 
+const formatDateTimeBR = (value?: string) => {
+    if (!value) {
+        return 'Não informado'
+    }
+
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) {
+        return value
+    }
+
+    return new Intl.DateTimeFormat('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    }).format(parsed)
+}
+
 const getMonthFromDate = (date: string) => {
     const [year, monthValue] = date.split('-')
     if (!year || !monthValue) {
@@ -180,6 +202,7 @@ function App() {
     const [loginPassword, setLoginPassword] = useState('')
     const [authError, setAuthError] = useState('')
     const [isAuthenticating, setIsAuthenticating] = useState(false)
+    const [isLoginTransition, setIsLoginTransition] = useState(false)
 
     const [editModalOpen, setEditModalOpen] = useState(false)
     const [editingRecordId, setEditingRecordId] = useState<number | null>(null)
@@ -188,14 +211,13 @@ function App() {
     const [editDate, setEditDate] = useState(initialNow.date)
     const [editTime, setEditTime] = useState(initialNow.time)
     const [editNote, setEditNote] = useState('')
+    const [editRecordAudit, setEditRecordAudit] = useState<InspectionRecord | null>(null)
 
     const [viewStartDate, setViewStartDate] = useState(initialNow.date)
     const [viewEndDate, setViewEndDate] = useState(initialNow.date)
     const [viewStatus, setViewStatus] = useState<ViewStatusFilter>('Todos')
+    const [viewSearch, setViewSearch] = useState('')
     const [isFilterActive, setIsFilterActive] = useState(false)
-
-    const [exportStartDate, setExportStartDate] = useState('')
-    const [exportEndDate, setExportEndDate] = useState('')
 
     const [notifications, setNotifications] = useState<NotificationItem[]>([])
     const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState>({
@@ -233,6 +255,15 @@ function App() {
             return false
         }
 
+        const searchTerm = viewSearch.trim().toLowerCase()
+        if (searchTerm) {
+            const uhMatch = record.uh.toLowerCase().includes(searchTerm)
+            const noteMatch = record.note.toLowerCase().includes(searchTerm)
+            if (!uhMatch && !noteMatch) {
+                return false
+            }
+        }
+
         return true
     })
 
@@ -245,6 +276,8 @@ function App() {
 
         return {
             total,
+            conformes,
+            retrabalho,
             conformidadePercentual,
             retrabalhoPercentual,
         }
@@ -316,6 +349,10 @@ function App() {
                         id: data.id,
                         firestoreId: snapshotDoc.id,
                         ownerId: data.ownerId,
+                        createdAt: typeof data.createdAt === 'string' ? data.createdAt : undefined,
+                        updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
+                        createdByEmail: typeof data.createdByEmail === 'string' ? data.createdByEmail : undefined,
+                        updatedByEmail: typeof data.updatedByEmail === 'string' ? data.updatedByEmail : undefined,
                         uh: data.uh,
                         status: data.status,
                         date: data.date,
@@ -339,6 +376,21 @@ function App() {
 
         return () => unsubscribe()
     }, [currentUser, isAuthLoading])
+
+    useEffect(() => {
+        if (!isLoggedIn) {
+            setIsLoginTransition(false)
+            return
+        }
+
+        if (!isRecordsLoading) {
+            const timer = window.setTimeout(() => {
+                setIsLoginTransition(false)
+            }, 820)
+
+            return () => window.clearTimeout(timer)
+        }
+    }, [isLoggedIn, isRecordsLoading])
 
     const pushNotification = (message: string, type: NoticeType = 'info') => {
         const id = Date.now() + Math.floor(Math.random() * 1000)
@@ -366,6 +418,7 @@ function App() {
         }
 
         setAuthError('')
+        setIsLoginTransition(true)
         setIsAuthenticating(true)
 
         try {
@@ -373,6 +426,7 @@ function App() {
             setLoginPassword('')
         } catch (error) {
             setAuthError(getFirebaseErrorMessage(error, 'Credenciais inválidas. Verifique seu usuário no Firebase Auth.'))
+            setIsLoginTransition(false)
         } finally {
             setIsAuthenticating(false)
         }
@@ -382,6 +436,8 @@ function App() {
         if (!auth) {
             return
         }
+
+        setIsLoginTransition(false)
 
         signOut(auth)
             .then(() => {
@@ -446,6 +502,10 @@ function App() {
         const newRecord: InspectionRecord = {
             id: Date.now(),
             ownerId: currentUser.uid,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            createdByEmail: currentUser.email ?? '',
+            updatedByEmail: currentUser.email ?? '',
             uh,
             status,
             date,
@@ -469,6 +529,7 @@ function App() {
     const handleEditRecord = (record: InspectionRecord) => {
         setEditModalOpen(true)
         setEditingRecordId(record.id)
+        setEditRecordAudit(record)
         setEditUh(record.uh)
         setEditStatus(record.status)
         setEditDate(record.date)
@@ -479,6 +540,7 @@ function App() {
     const closeEditModal = () => {
         setEditModalOpen(false)
         setEditingRecordId(null)
+        setEditRecordAudit(null)
     }
 
     const handleEditSave = async (event: FormEvent<HTMLFormElement>) => {
@@ -514,6 +576,8 @@ function App() {
                 month: getMonthFromDate(editDate),
                 time: editTime,
                 note: editNote.trim(),
+                updatedAt: new Date().toISOString(),
+                updatedByEmail: currentUser?.email ?? '',
             })
 
             closeEditModal()
@@ -599,6 +663,7 @@ function App() {
         setViewStartDate(initialNow.date)
         setViewEndDate(initialNow.date)
         setViewStatus('Todos')
+        setViewSearch('')
         setIsFilterActive(false)
     }
 
@@ -628,23 +693,10 @@ function App() {
         setIsFilterActive(true)
     }
 
-    const filteredRecordsForExport = records.filter((record) => {
-        if (exportStartDate && record.date < exportStartDate) {
-            return false
-        }
+    const exportConformes = viewedRecords.filter((record) => record.status === 'Conforme').length
+    const exportRetrabalho = viewedRecords.length - exportConformes
 
-        if (exportEndDate && record.date > exportEndDate) {
-            return false
-        }
-
-        return true
-    })
-
-    const hasExportPeriod = Boolean(exportStartDate || exportEndDate)
-    const exportConformes = filteredRecordsForExport.filter((record) => record.status === 'Conforme').length
-    const exportRetrabalho = filteredRecordsForExport.length - exportConformes
-
-    const exportRows = filteredRecordsForExport.map((item) => ({
+    const exportRows = viewedRecords.map((item) => ({
         UH: item.uh,
         Status: item.status,
         Data: formatDateBR(item.date),
@@ -655,7 +707,7 @@ function App() {
 
     const handleExportCsv = () => {
         if (!exportRows.length) {
-            pushNotification('Não há registros no período selecionado para exportar.', 'aviso')
+            pushNotification('Não há registros nos filtros atuais para exportar.', 'aviso')
             return
         }
 
@@ -675,58 +727,63 @@ function App() {
         pushNotification('Arquivo CSV exportado com sucesso.', 'sucesso')
     }
 
-    const handleExportExcel = () => {
+    const handleExportExcel = async () => {
         if (!exportRows.length) {
-            pushNotification('Não há registros no período selecionado para exportar.', 'aviso')
+            pushNotification('Não há registros nos filtros atuais para exportar.', 'aviso')
             return
         }
 
-        const worksheet = XLSX.utils.json_to_sheet(exportRows)
+        try {
+            const XLSX = await import('xlsx')
+            const worksheet = XLSX.utils.json_to_sheet(exportRows)
 
-        worksheet['!cols'] = [
-            { wch: 8 },
-            { wch: 14 },
-            { wch: 14 },
-            { wch: 10 },
-            { wch: 8 },
-            { wch: 36 },
-        ]
+            worksheet['!cols'] = [
+                { wch: 8 },
+                { wch: 14 },
+                { wch: 14 },
+                { wch: 10 },
+                { wch: 8 },
+                { wch: 36 },
+            ]
 
-        const headerRange = XLSX.utils.decode_range(worksheet['!ref'] ?? 'A1')
-        for (let col = headerRange.s.c; col <= headerRange.e.c; col++) {
-            const cellRef = XLSX.utils.encode_cell({ r: 0, c: col })
-            const cell = worksheet[cellRef]
-            if (cell) {
-                cell.s = {
-                    font: { bold: true, color: { rgb: 'FFFFFF' } },
-                    fill: { fgColor: { rgb: '1B4F5C' } },
-                    alignment: { horizontal: 'center' },
-                    border: {
-                        bottom: { style: 'thin', color: { rgb: '0D3640' } },
-                    },
-                }
-            }
-        }
-
-        for (let row = 1; row <= headerRange.e.r; row++) {
+            const headerRange = XLSX.utils.decode_range(worksheet['!ref'] ?? 'A1')
             for (let col = headerRange.s.c; col <= headerRange.e.c; col++) {
-                const cellRef = XLSX.utils.encode_cell({ r: row, c: col })
+                const cellRef = XLSX.utils.encode_cell({ r: 0, c: col })
                 const cell = worksheet[cellRef]
                 if (cell) {
                     cell.s = {
+                        font: { bold: true, color: { rgb: 'FFFFFF' } },
+                        fill: { fgColor: { rgb: '1B4F5C' } },
                         alignment: { horizontal: 'center' },
                         border: {
-                            bottom: { style: 'thin', color: { rgb: 'D0DDD9' } },
+                            bottom: { style: 'thin', color: { rgb: '0D3640' } },
                         },
                     }
                 }
             }
-        }
 
-        const workbook = XLSX.utils.book_new()
-        XLSX.utils.book_append_sheet(workbook, worksheet, 'Inspeções')
-        XLSX.writeFile(workbook, 'relatorio-inspecoes.xlsx', { bookSST: true })
-        pushNotification('Arquivo Excel exportado com sucesso.', 'sucesso')
+            for (let row = 1; row <= headerRange.e.r; row++) {
+                for (let col = headerRange.s.c; col <= headerRange.e.c; col++) {
+                    const cellRef = XLSX.utils.encode_cell({ r: row, c: col })
+                    const cell = worksheet[cellRef]
+                    if (cell) {
+                        cell.s = {
+                            alignment: { horizontal: 'center' },
+                            border: {
+                                bottom: { style: 'thin', color: { rgb: 'D0DDD9' } },
+                            },
+                        }
+                    }
+                }
+            }
+
+            const workbook = XLSX.utils.book_new()
+            XLSX.utils.book_append_sheet(workbook, worksheet, 'Inspeções')
+            XLSX.writeFile(workbook, 'relatorio-inspecoes.xlsx', { bookSST: true })
+            pushNotification('Arquivo Excel exportado com sucesso.', 'sucesso')
+        } catch {
+            pushNotification('Não foi possível gerar o Excel neste momento.', 'aviso')
+        }
     }
 
     const confirmDialogTitle =
@@ -736,6 +793,24 @@ function App() {
         confirmDialog.action === 'limpar'
             ? 'Deseja realmente apagar todos os registros? Essa ação não pode ser desfeita.'
             : 'Deseja realmente excluir este registro de inspeção?'
+
+    if (isLoginTransition) {
+        return (
+            <div className="app-shell">
+                <div className="login-transition" aria-live="polite">
+                    <div className="login-transition-content">
+                        <div className="login-transition-rings" aria-hidden="true">
+                            <span className="ring ring-one" />
+                            <span className="ring ring-two" />
+                            <span className="ring ring-three" />
+                        </div>
+                        <h2>Preparando seu ambiente</h2>
+                        <p>Validando credenciais e carregando painel de governança...</p>
+                    </div>
+                </div>
+            </div>
+        )
+    }
 
     if (isPageLoading || isAuthLoading || (isLoggedIn && isRecordsLoading)) {
         return (
@@ -851,21 +926,31 @@ function App() {
                     <div className="stat-card">
                         <span className="stat-label">Inspeções Totais</span>
                         <strong className="stat-value">{stats.total}</strong>
+                        <span className="stat-foot">Baseado nos filtros de visualização ativos</span>
                     </div>
                     <div className="stat-card">
                         <span className="stat-label">Conformidade</span>
                         <strong className="stat-value">{stats.conformidadePercentual}%</strong>
                         <div className="progress-bar-container"><div className="progress-fill" style={{ width: `${stats.conformidadePercentual}%` }}></div></div>
+                        <span className="stat-foot">{stats.conformes} inspeções conformes</span>
                     </div>
                     <div className="stat-card danger">
                         <span className="stat-label">Retrabalho</span>
                         <strong className="stat-value">{stats.retrabalhoPercentual}%</strong>
+                        <span className="stat-foot">{stats.retrabalho} inspeções com pendência</span>
                     </div>
                 </section>
 
                 <section className="panel form-panel">
                     <div className="panel-header">
-                        <span className="icon">📝</span>
+                        <span className="icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M7 3.75H14.25L18.5 8V20.25H7V3.75Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d="M14 3.75V8H18.25" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d="M9.5 12H15.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                <path d="M9.5 15.5H15.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                            </svg>
+                        </span>
                         <h2>Registrar Inspeção</h2>
                     </div>
                     <form onSubmit={handleRegister} className="inspection-form">
@@ -937,13 +1022,20 @@ function App() {
 
                 <section className="panel report-panel">
                     <div className="panel-header">
-                        <span className="icon">📊</span>
+                        <span className="icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M4 19.25H20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                <path d="M7.5 16.25V11.25" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                <path d="M12 16.25V7.75" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                <path d="M16.5 16.25V9.75" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                            </svg>
+                        </span>
                         <h2>Inspeções do período selecionado</h2>
                         <span className="badge-count">{viewedRecords.length} inspeções</span>
                     </div>
 
                     <div className="view-filters">
-                        <p className="filters-title">Filtros de visualização</p>
+                        <p className="filters-title">Filtros de consulta e exportação</p>
                         <div className="fancy-date-range">
                             <label>
                                 Início
@@ -981,6 +1073,18 @@ function App() {
                                     <option value="Retrabalho">Retrabalho</option>
                                 </select>
                             </label>
+                            <label>
+                                Buscar
+                                <input
+                                    type="text"
+                                    value={viewSearch}
+                                    onChange={(event) => {
+                                        setViewSearch(event.target.value)
+                                        setIsFilterActive(true)
+                                    }}
+                                    placeholder="UH ou observação"
+                                />
+                            </label>
                         </div>
                         <div className="view-presets">
                             <button type="button" className="ghost-btn" onClick={() => applyViewPreset('today')}>
@@ -994,37 +1098,15 @@ function App() {
                             </button>
                         </div>
                         <button type="button" className="ghost-btn" onClick={clearViewFilters}>
-                            Limpar filtros de visualização
+                            Limpar filtros
                         </button>
                     </div>
 
                     <div className="report-actions">
-                        <div className="view-filters">
-                            <p className="filters-title">Período para exportação</p>
-                            <div className="fancy-date-range">
-                                <label>
-                                    De
-                                    <input
-                                        type="date"
-                                        value={exportStartDate}
-                                        onChange={(event) => setExportStartDate(event.target.value)}
-                                    />
-                                </label>
-                                <label>
-                                    Até
-                                    <input
-                                        type="date"
-                                        value={exportEndDate}
-                                        onChange={(event) => setExportEndDate(event.target.value)}
-                                    />
-                                </label>
-                            </div>
-                        </div>
-
-                        <button type="button" onClick={handleExportCsv} disabled={!records.length}>
+                        <button type="button" onClick={handleExportCsv} disabled={!viewedRecords.length}>
                             Exportar CSV
                         </button>
-                        <button type="button" onClick={handleExportExcel} disabled={!records.length}>
+                        <button type="button" onClick={handleExportExcel} disabled={!viewedRecords.length}>
                             Exportar Excel
                         </button>
                         <button type="button" className="danger" onClick={requestClearRecords} disabled={!records.length}>
@@ -1032,9 +1114,9 @@ function App() {
                         </button>
                     </div>
 
-                    {hasExportPeriod ? (
+                    {isFilterActive ? (
                         <p className="filter-summary">
-                            {filteredRecordsForExport.length} registros no período selecionado para exportação. Conforme: {exportConformes} | Retrabalho: {exportRetrabalho}
+                            {viewedRecords.length} registros pelos filtros atuais para visualização/exportação. Conforme: {exportConformes} | Retrabalho: {exportRetrabalho}
                         </p>
                     ) : null}
 
@@ -1042,7 +1124,16 @@ function App() {
                         {isRecordsLoading ? (
                             <p className="empty-state">Carregando inspeções do Firebase...</p>
                         ) : !viewedRecords.length ? (
-                            <p className="empty-state">Nenhuma inspeção encontrada com os filtros atuais.</p>
+                            <div className="empty-state">
+                                <span className="empty-state-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M4.75 6.25H19.25V18.25H4.75V6.25Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                        <path d="M8 10.25H16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                        <path d="M8 13.75H13.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                    </svg>
+                                </span>
+                                <p>Nenhuma inspeção encontrada com os filtros atuais.</p>
+                            </div>
                         ) : (
                             viewedRecords.map((record) => (
                                 <article key={record.firestoreId ?? record.id} className="record-card" role="listitem">
@@ -1082,6 +1173,10 @@ function App() {
                 </section>
             </main>
 
+            <footer className="app-footer">
+                <p>© {new Date().getFullYear()} Sarah Bomfim</p>
+            </footer>
+
             {editModalOpen ? (
                 <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Editar inspeção">
                     <div className="modal-card zoom-in">
@@ -1093,6 +1188,13 @@ function App() {
                         </div>
 
                         <form onSubmit={handleEditSave} className="inspection-form">
+                            <div className="audit-meta">
+                                <p><b>Criado em:</b> {formatDateTimeBR(editRecordAudit?.createdAt)}</p>
+                                <p><b>Criado por:</b> {editRecordAudit?.createdByEmail || 'Não informado'}</p>
+                                <p><b>Última atualização:</b> {formatDateTimeBR(editRecordAudit?.updatedAt)}</p>
+                                <p><b>Atualizado por:</b> {editRecordAudit?.updatedByEmail || 'Não informado'}</p>
+                            </div>
+
                             <label>
                                 UH
                                 <select value={editUh} onChange={(event) => setEditUh(event.target.value)} required>
