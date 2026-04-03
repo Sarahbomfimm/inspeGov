@@ -13,13 +13,21 @@ const firebaseConfig = {
     measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 }
 
-const app = initializeApp(firebaseConfig)
+const hasFirebaseConfig =
+    Boolean(firebaseConfig.apiKey) &&
+    Boolean(firebaseConfig.authDomain) &&
+    Boolean(firebaseConfig.projectId) &&
+    Boolean(firebaseConfig.appId)
 
-export const auth = getAuth(app)
-export const db = getFirestore(app)
+const app = hasFirebaseConfig ? initializeApp(firebaseConfig) : null
+
+export const firebaseReady = Boolean(app)
+
+export const auth = app ? getAuth(app) : null
+export const db = app ? getFirestore(app) : null
 
 export const analyticsPromise = isSupported().then((supported) => {
-    if (!supported) {
+    if (!supported || !app) {
         return null
     }
     return getAnalytics(app)

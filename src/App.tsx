@@ -18,7 +18,7 @@ import {
     writeBatch,
 } from 'firebase/firestore'
 import * as XLSX from 'xlsx'
-import { auth, db } from './firebase'
+import { auth, db, firebaseReady } from './firebase'
 import './App.css'
 
 type InspectionStatus = 'Conforme' | 'Retrabalho'
@@ -262,6 +262,12 @@ function App() {
     }, [])
 
     useEffect(() => {
+        if (!auth) {
+            setIsAuthLoading(false)
+            setIsLoggedIn(false)
+            return
+        }
+
         const unsubscribe = onAuthStateChanged(auth, (user) => {
             setCurrentUser(user)
             setIsLoggedIn(Boolean(user))
@@ -273,6 +279,11 @@ function App() {
     }, [])
 
     useEffect(() => {
+        if (!db) {
+            setIsRecordsLoading(false)
+            return
+        }
+
         if (!currentUser) {
             if (!isAuthLoading) {
                 setRecords([])
@@ -341,6 +352,11 @@ function App() {
     const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
 
+        if (!auth) {
+            setAuthError('Configuração do Firebase ausente. Defina os secrets do GitHub Pages.')
+            return
+        }
+
         const normalizedEmail = loginEmail.trim().toLowerCase()
         const trimmedPassword = loginPassword.trim()
 
@@ -363,6 +379,10 @@ function App() {
     }
 
     const handleLogout = () => {
+        if (!auth) {
+            return
+        }
+
         signOut(auth)
             .then(() => {
                 setLoginEmail('')
@@ -375,6 +395,11 @@ function App() {
     }
 
     const handleResetPassword = async () => {
+        if (!auth) {
+            setAuthError('Configuração do Firebase ausente. Defina os secrets do GitHub Pages.')
+            return
+        }
+
         const normalizedEmail = loginEmail.trim().toLowerCase()
         if (!normalizedEmail) {
             setAuthError('Informe seu e-mail para recuperar a senha.')
@@ -400,6 +425,11 @@ function App() {
 
     const handleRegister = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
+
+        if (!db) {
+            pushNotification('Firebase não configurado para este ambiente.', 'aviso')
+            return
+        }
 
         if (!uh || !date || !time) {
             pushNotification('Preencha UH, data e hora para salvar.', 'aviso')
@@ -453,6 +483,11 @@ function App() {
 
     const handleEditSave = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
+
+        if (!db) {
+            pushNotification('Firebase não configurado para este ambiente.', 'aviso')
+            return
+        }
 
         if (!editingRecordId) {
             return
@@ -519,9 +554,17 @@ function App() {
     }
 
     const handleConfirmDialog = async () => {
+        if (!db) {
+            pushNotification('Firebase não configurado para este ambiente.', 'aviso')
+            closeConfirmDialog()
+            return
+        }
+
+        const firestore = db
+
         if (confirmDialog.action === 'excluir' && confirmDialog.recordId) {
             try {
-                await deleteDoc(doc(db, 'inspections', confirmDialog.recordId))
+                await deleteDoc(doc(firestore, 'inspections', confirmDialog.recordId))
 
                 const deletedRecord = records.find((record) => record.firestoreId === confirmDialog.recordId)
                 if (deletedRecord && editingRecordId === deletedRecord.id) {
@@ -536,10 +579,10 @@ function App() {
 
         if (confirmDialog.action === 'limpar') {
             try {
-                const batch = writeBatch(db)
+                const batch = writeBatch(firestore)
                 records.forEach((record) => {
                     if (record.firestoreId) {
-                        batch.delete(doc(db, 'inspections', record.firestoreId))
+                        batch.delete(doc(firestore, 'inspections', record.firestoreId))
                     }
                 })
                 await batch.commit()
@@ -698,6 +741,19 @@ function App() {
                         <div className="loading-spinner-large" />
                         <h2>InspeGov</h2>
                         <p>{isPageLoading || isAuthLoading ? 'Validando acesso seguro...' : 'Carregando seus registros...'}</p>
+                    </div>
+                </div>
+            </div>
+        )
+    }
+
+    if (!firebaseReady) {
+        return (
+            <div className="app-shell">
+                <div className="loading-panel" aria-live="polite">
+                    <div className="loading-content">
+                        <h2>Configuração pendente</h2>
+                        <p>Defina as variáveis VITE_FIREBASE_* no ambiente do GitHub Pages.</p>
                     </div>
                 </div>
             </div>
