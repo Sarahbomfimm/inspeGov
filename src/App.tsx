@@ -640,6 +640,10 @@ function App() {
         return true
     })
 
+    const hasExportPeriod = Boolean(exportStartDate || exportEndDate)
+    const exportConformes = filteredRecordsForExport.filter((record) => record.status === 'Conforme').length
+    const exportRetrabalho = filteredRecordsForExport.length - exportConformes
+
     const exportRows = filteredRecordsForExport.map((item) => ({
         UH: item.uh,
         Status: item.status,
@@ -1028,9 +1032,11 @@ function App() {
                         </button>
                     </div>
 
-                    <p className="filter-summary">
-                        {filteredRecordsForExport.length} registros no período selecionado para exportação.
-                    </p>
+                    {hasExportPeriod ? (
+                        <p className="filter-summary">
+                            {filteredRecordsForExport.length} registros no período selecionado para exportação. Conforme: {exportConformes} | Retrabalho: {exportRetrabalho}
+                        </p>
+                    ) : null}
 
                     <div className="records-list" role="list" aria-label="Lista de inspeções">
                         {isRecordsLoading ? (
