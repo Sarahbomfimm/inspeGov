@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
+    EmailAuthProvider,
     onAuthStateChanged,
+    reauthenticateWithCredential,
     sendPasswordResetEmail,
     signInWithEmailAndPassword,
     signOut,
@@ -23,6 +25,8 @@ import './App.css'
 type InspectionStatus = 'Conforme' | 'Retrabalho'
 type NoticeType = 'sucesso' | 'aviso' | 'info'
 type ViewStatusFilter = 'Todos' | InspectionStatus
+type ReworkExecutionFilter = 'Todos' | 'Pendentes' | 'Executados'
+type ViewPreset = 'today' | 'week' | 'month' | null
 type ConfirmAction = 'excluir' | 'limpar'
 
 interface InspectionRecord {
@@ -33,6 +37,11 @@ interface InspectionRecord {
     updatedAt?: string
     createdByEmail?: string
     updatedByEmail?: string
+    reworkDone?: boolean
+    reworkCompletedAt?: string
+    reworkCompletedByEmail?: string
+    housekeeper: string
+    inspector: string
     uh: string
     status: InspectionStatus
     date: string
@@ -54,6 +63,7 @@ interface ConfirmDialogState {
 }
 
 const STORAGE_KEY = 'inspegov-inspections-v1'
+const RECOVERY_NOTIFICATION_EMAIL = 'sarahbomfimm24@gmail.com'
 
 const ROOM_RANGES: Array<[number, number]> = [
     [100, 115],
@@ -102,14 +112,6 @@ const formatDateBR = (date: string) => {
     return `${day}/${month}/${year}`
 }
 
-const formatMonthBR = (month: string) => {
-    const [year, monthValue] = month.split('-')
-    if (!year || !monthValue) {
-        return month
-    }
-    return `${monthValue}/${year}`
-}
-
 const formatDateTimeBR = (value?: string) => {
     if (!value) {
         return 'Não informado'
@@ -139,6 +141,9 @@ const getMonthFromDate = (date: string) => {
 
 const getStatusClassName = (status: InspectionStatus) =>
     status === 'Conforme' ? 'status-conforme' : 'status-retrabalho'
+
+const isReworkPending = (record: InspectionRecord) =>
+    record.status === 'Retrabalho' && !record.reworkDone
 
 const getUserInitials = (email: string) => {
     const [localPart] = email.split('@')
@@ -180,11 +185,17 @@ const downloadBlob = (content: BlobPart, fileName: string, type: string) => {
     URL.revokeObjectURL(url)
 }
 
+const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
 function App() {
     const rooms = useMemo(() => buildRooms(), [])
     const initialNow = useMemo(() => getNowValues(), [])
 
     const [uh, setUh] = useState(rooms[0] ?? '')
+    const [housekeeper, setHousekeeper] = useState('')
+    const [inspector, setInspector] = useState('')
     const [status, setStatus] = useState<InspectionStatus>('Conforme')
     const [date, setDate] = useState(initialNow.date)
     const [time, setTime] = useState(initialNow.time)
@@ -207,7 +218,10 @@ function App() {
     const [editModalOpen, setEditModalOpen] = useState(false)
     const [editingRecordId, setEditingRecordId] = useState<number | null>(null)
     const [editUh, setEditUh] = useState(rooms[0] ?? '')
+    const [editHousekeeper, setEditHousekeeper] = useState('')
+    const [editInspector, setEditInspector] = useState('')
     const [editStatus, setEditStatus] = useState<InspectionStatus>('Conforme')
+    const [editReworkDone, setEditReworkDone] = useState(false)
     const [editDate, setEditDate] = useState(initialNow.date)
     const [editTime, setEditTime] = useState(initialNow.time)
     const [editNote, setEditNote] = useState('')
@@ -216,14 +230,19 @@ function App() {
     const [viewStartDate, setViewStartDate] = useState(initialNow.date)
     const [viewEndDate, setViewEndDate] = useState(initialNow.date)
     const [viewStatus, setViewStatus] = useState<ViewStatusFilter>('Todos')
+    const [viewReworkExecution, setViewReworkExecution] = useState<ReworkExecutionFilter>('Todos')
     const [viewSearch, setViewSearch] = useState('')
     const [isFilterActive, setIsFilterActive] = useState(false)
+    const [activeViewPreset, setActiveViewPreset] = useState<ViewPreset>(null)
 
     const [notifications, setNotifications] = useState<NotificationItem[]>([])
     const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState>({
         isOpen: false,
         action: 'excluir',
     })
+    const [clearRecordsPassword, setClearRecordsPassword] = useState('')
+    const [clearRecordsError, setClearRecordsError] = useState('')
+    const [isConfirmingClear, setIsConfirmingClear] = useState(false)
 
     const [records, setRecords] = useState<InspectionRecord[]>(() => {
         const raw = localStorage.getItem(STORAGE_KEY)
@@ -255,11 +274,27 @@ function App() {
             return false
         }
 
+        if (viewReworkExecution !== 'Todos') {
+            if (record.status !== 'Retrabalho') {
+                return false
+            }
+
+            if (viewReworkExecution === 'Pendentes' && record.reworkDone) {
+                return false
+            }
+
+            if (viewReworkExecution === 'Executados' && !record.reworkDone) {
+                return false
+            }
+        }
+
         const searchTerm = viewSearch.trim().toLowerCase()
         if (searchTerm) {
             const uhMatch = record.uh.toLowerCase().includes(searchTerm)
             const noteMatch = record.note.toLowerCase().includes(searchTerm)
-            if (!uhMatch && !noteMatch) {
+            const housekeeperMatch = (record.housekeeper ?? '').toLowerCase().includes(searchTerm)
+            const inspectorMatch = (record.inspector ?? '').toLowerCase().includes(searchTerm)
+            if (!uhMatch && !noteMatch && !housekeeperMatch && !inspectorMatch) {
                 return false
             }
         }
@@ -271,6 +306,8 @@ function App() {
         const total = viewedRecords.length
         const conformes = viewedRecords.filter((r) => r.status === 'Conforme').length
         const retrabalho = total - conformes
+        const retrabalhoPendente = viewedRecords.filter((record) => isReworkPending(record)).length
+        const retrabalhoExecutado = viewedRecords.filter((record) => record.status === 'Retrabalho' && record.reworkDone).length
         const conformidadePercentual = total > 0 ? Math.round((conformes / total) * 100) : 0
         const retrabalhoPercentual = total > 0 ? Math.round((retrabalho / total) * 100) : 0
 
@@ -278,6 +315,8 @@ function App() {
             total,
             conformes,
             retrabalho,
+            retrabalhoPendente,
+            retrabalhoExecutado,
             conformidadePercentual,
             retrabalhoPercentual,
         }
@@ -353,6 +392,11 @@ function App() {
                         updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : undefined,
                         createdByEmail: typeof data.createdByEmail === 'string' ? data.createdByEmail : undefined,
                         updatedByEmail: typeof data.updatedByEmail === 'string' ? data.updatedByEmail : undefined,
+                        reworkDone: typeof data.reworkDone === 'boolean' ? data.reworkDone : false,
+                        reworkCompletedAt: typeof data.reworkCompletedAt === 'string' ? data.reworkCompletedAt : undefined,
+                        reworkCompletedByEmail: typeof data.reworkCompletedByEmail === 'string' ? data.reworkCompletedByEmail : undefined,
+                        housekeeper: typeof data.housekeeper === 'string' ? data.housekeeper : '',
+                        inspector: typeof data.inspector === 'string' ? data.inspector : '',
                         uh: data.uh,
                         status: data.status,
                         date: data.date,
@@ -451,11 +495,6 @@ function App() {
     }
 
     const handleResetPassword = async () => {
-        if (!auth) {
-            setAuthError('Configuração do Firebase ausente. Defina os secrets do GitHub Pages.')
-            return
-        }
-
         const normalizedEmail = loginEmail.trim().toLowerCase()
         if (!normalizedEmail) {
             setAuthError('Informe seu e-mail para recuperar a senha.')
@@ -463,11 +502,26 @@ function App() {
         }
 
         try {
-            await sendPasswordResetEmail(auth, normalizedEmail)
-            setAuthError('')
-            pushNotification('E-mail de recuperação enviado com sucesso.', 'sucesso')
+            if (!db) {
+                setAuthError('Configuração do Firebase ausente. Não foi possível registrar a solicitação de recuperação.')
+                return
+            }
+
+            await addDoc(collection(db, 'passwordRecoveryRequests'), {
+                email: normalizedEmail,
+                destinationEmail: RECOVERY_NOTIFICATION_EMAIL,
+                requestedAt: new Date().toISOString(),
+                status: 'solicitado',
+                origin: 'login',
+            })
+
+            if (auth) {
+                await sendPasswordResetEmail(auth, normalizedEmail).catch(() => undefined)
+            }
+
+            setAuthError('Solicitação de recuperação de senha foi solicitada. Em algum tempo haverá retorno.')
         } catch (error) {
-            setAuthError(getFirebaseErrorMessage(error, 'Não foi possível enviar a recuperação para este e-mail.'))
+            setAuthError(getFirebaseErrorMessage(error, 'Não foi possível registrar a recuperação de senha para retorno da governança.'))
         }
     }
 
@@ -487,8 +541,8 @@ function App() {
             return
         }
 
-        if (!uh || !date || !time) {
-            pushNotification('Preencha UH, data e hora para salvar.', 'aviso')
+        if (!uh || !housekeeper.trim() || !inspector.trim() || !date || !time) {
+            pushNotification('Preencha UH, camareira, inspetor, data e hora para salvar.', 'aviso')
             return
         }
 
@@ -506,6 +560,9 @@ function App() {
             updatedAt: new Date().toISOString(),
             createdByEmail: currentUser.email ?? '',
             updatedByEmail: currentUser.email ?? '',
+            reworkDone: false,
+            housekeeper: housekeeper.trim(),
+            inspector: inspector.trim(),
             uh,
             status,
             date,
@@ -517,6 +574,8 @@ function App() {
         try {
             await addDoc(collection(db, 'inspections'), newRecord)
             setStatus('Conforme')
+            setHousekeeper('')
+            setInspector('')
             setNote('')
             pushNotification('Inspeção registrada com sucesso.', 'sucesso')
         } catch (error) {
@@ -531,7 +590,10 @@ function App() {
         setEditingRecordId(record.id)
         setEditRecordAudit(record)
         setEditUh(record.uh)
+        setEditHousekeeper(record.housekeeper)
+        setEditInspector(record.inspector)
         setEditStatus(record.status)
+        setEditReworkDone(Boolean(record.reworkDone))
         setEditDate(record.date)
         setEditTime(record.time)
         setEditNote(record.note)
@@ -541,6 +603,7 @@ function App() {
         setEditModalOpen(false)
         setEditingRecordId(null)
         setEditRecordAudit(null)
+        setEditReworkDone(false)
     }
 
     const handleEditSave = async (event: FormEvent<HTMLFormElement>) => {
@@ -555,8 +618,8 @@ function App() {
             return
         }
 
-        if (!editUh || !editDate || !editTime) {
-            pushNotification('Preencha UH, data e hora para atualizar.', 'aviso')
+        if (!editUh || !editHousekeeper.trim() || !editInspector.trim() || !editDate || !editTime) {
+            pushNotification('Preencha UH, camareira, inspetor, data e hora para atualizar.', 'aviso')
             return
         }
 
@@ -569,9 +632,29 @@ function App() {
         setIsSavingEdit(true)
 
         try {
+            const nowIso = new Date().toISOString()
+            const nextReworkDone = editStatus === 'Retrabalho' ? editReworkDone : false
+            const nextReworkCompletedAt =
+                editStatus === 'Retrabalho' && editReworkDone
+                    ? recordToUpdate.reworkDone
+                        ? recordToUpdate.reworkCompletedAt ?? nowIso
+                        : nowIso
+                    : null
+            const nextReworkCompletedByEmail =
+                editStatus === 'Retrabalho' && editReworkDone
+                    ? recordToUpdate.reworkDone
+                        ? recordToUpdate.reworkCompletedByEmail ?? currentUser?.email ?? ''
+                        : currentUser?.email ?? ''
+                    : ''
+
             await updateDoc(doc(db, 'inspections', recordToUpdate.firestoreId), {
                 uh: editUh,
+                housekeeper: editHousekeeper.trim(),
+                inspector: editInspector.trim(),
                 status: editStatus,
+                reworkDone: nextReworkDone,
+                reworkCompletedAt: nextReworkCompletedAt,
+                reworkCompletedByEmail: nextReworkCompletedByEmail,
                 date: editDate,
                 month: getMonthFromDate(editDate),
                 time: editTime,
@@ -587,6 +670,47 @@ function App() {
         } finally {
             setIsSavingEdit(false)
         }
+    }
+
+    const handleMarkReworkDone = async (record: InspectionRecord) => {
+        if (!db || !record.firestoreId) {
+            pushNotification('Registro de retrabalho sem referência para atualização.', 'aviso')
+            return
+        }
+
+        try {
+            await updateDoc(doc(db, 'inspections', record.firestoreId), {
+                reworkDone: true,
+                reworkCompletedAt: new Date().toISOString(),
+                reworkCompletedByEmail: currentUser?.email ?? '',
+                updatedAt: new Date().toISOString(),
+                updatedByEmail: currentUser?.email ?? '',
+            })
+
+            pushNotification(`UH ${record.uh} marcada como retrabalho executado.`, 'sucesso')
+        } catch (error) {
+            pushNotification(getFirebaseErrorMessage(error, 'Não foi possível concluir o retrabalho.'), 'aviso')
+        }
+    }
+
+    const showPendingReworks = () => {
+        setViewStartDate('')
+        setViewEndDate('')
+        setViewStatus('Retrabalho')
+        setViewReworkExecution('Pendentes')
+        setViewSearch('')
+        setIsFilterActive(true)
+        setActiveViewPreset(null)
+    }
+
+    const showAllReworks = () => {
+        setViewStartDate('')
+        setViewEndDate('')
+        setViewStatus('Retrabalho')
+        setViewReworkExecution('Todos')
+        setViewSearch('')
+        setIsFilterActive(true)
+        setActiveViewPreset(null)
     }
 
     const requestDeleteRecord = (recordId?: string) => {
@@ -614,6 +738,9 @@ function App() {
     }
 
     const closeConfirmDialog = () => {
+        setClearRecordsPassword('')
+        setClearRecordsError('')
+        setIsConfirmingClear(false)
         setConfirmDialog({ isOpen: false, action: 'excluir' })
     }
 
@@ -639,10 +766,30 @@ function App() {
             } catch (error) {
                 pushNotification(getFirebaseErrorMessage(error, 'Não foi possível excluir o registro.'), 'aviso')
             }
+
+            closeConfirmDialog()
+            return
         }
 
         if (confirmDialog.action === 'limpar') {
+            if (!auth || !currentUser?.email) {
+                setClearRecordsError('Sessão inválida. Faça login novamente para continuar.')
+                return
+            }
+
+            const trimmedPassword = clearRecordsPassword.trim()
+            if (!trimmedPassword) {
+                setClearRecordsError('Informe sua senha para confirmar a limpeza.')
+                return
+            }
+
             try {
+                setIsConfirmingClear(true)
+                setClearRecordsError('')
+
+                const credential = EmailAuthProvider.credential(currentUser.email, trimmedPassword)
+                await reauthenticateWithCredential(currentUser, credential)
+
                 const batch = writeBatch(firestore)
                 records.forEach((record) => {
                     if (record.firestoreId) {
@@ -652,19 +799,25 @@ function App() {
                 await batch.commit()
                 pushNotification('Todos os registros foram removidos.', 'info')
             } catch (error) {
-                pushNotification(getFirebaseErrorMessage(error, 'Não foi possível limpar os registros.'), 'aviso')
+                const message = getFirebaseErrorMessage(error, 'Não foi possível validar sua senha para limpar os registros.')
+                setClearRecordsError(message)
+                setIsConfirmingClear(false)
+                return
             }
-        }
 
-        closeConfirmDialog()
+            closeConfirmDialog()
+            return
+        }
     }
 
     const clearViewFilters = () => {
         setViewStartDate(initialNow.date)
         setViewEndDate(initialNow.date)
         setViewStatus('Todos')
+        setViewReworkExecution('Todos')
         setViewSearch('')
         setIsFilterActive(false)
+        setActiveViewPreset(null)
     }
 
     const applyViewPreset = (preset: 'today' | 'week' | 'month') => {
@@ -675,6 +828,7 @@ function App() {
             setViewStartDate(endDate)
             setViewEndDate(endDate)
             setIsFilterActive(true)
+            setActiveViewPreset('today')
             return
         }
 
@@ -684,6 +838,7 @@ function App() {
             setViewStartDate(start.toISOString().slice(0, 10))
             setViewEndDate(endDate)
             setIsFilterActive(true)
+            setActiveViewPreset('week')
             return
         }
 
@@ -691,16 +846,20 @@ function App() {
         setViewStartDate(startOfMonth.toISOString().slice(0, 10))
         setViewEndDate(endDate)
         setIsFilterActive(true)
+        setActiveViewPreset('month')
     }
 
     const exportConformes = viewedRecords.filter((record) => record.status === 'Conforme').length
     const exportRetrabalho = viewedRecords.length - exportConformes
+    const exportRetrabalhoPendente = viewedRecords.filter((record) => isReworkPending(record)).length
 
     const exportRows = viewedRecords.map((item) => ({
         UH: item.uh,
+        Camareira: item.housekeeper,
+        Inspetor: item.inspector,
         Status: item.status,
+        'Execução do retrabalho': item.status !== 'Retrabalho' ? '-' : item.reworkDone ? 'Executado' : 'Pendente',
         Data: formatDateBR(item.date),
-        Mes: formatMonthBR(item.month),
         Hora: item.time,
         Observacao: item.note,
     }))
@@ -739,9 +898,11 @@ function App() {
 
             worksheet['!cols'] = [
                 { wch: 8 },
+                { wch: 22 },
+                { wch: 22 },
                 { wch: 14 },
+                { wch: 22 },
                 { wch: 14 },
-                { wch: 10 },
                 { wch: 8 },
                 { wch: 36 },
             ]
@@ -845,52 +1006,83 @@ function App() {
                 <div className="login-glow login-glow-one" />
                 <div className="login-glow login-glow-two" />
 
-                <form className="login-card zoom-in" onSubmit={handleLogin}>
-                    <p className="kicker login-kicker">InspeGov Access</p>
-                    <h1>Bem-vindo ao Painel</h1>
-                    <p className="login-subtitle">Entre com seu acesso corporativo para iniciar o controle de inspeções.</p>
+                <div className="login-layout zoom-in">
+                    <section className="login-showcase">
+                        <div className="login-showcase-mark">
+                            <span className="login-showcase-badge">InspeGov</span>
+                            <span className="login-showcase-dot" aria-hidden="true" />
+                        </div>
+                        <div className="login-showcase-copy">
+                            <p className="kicker login-kicker">Governança operacional</p>
+                            <h1>Controle de inspeções com uma experiência mais executiva.</h1>
+                            <p className="login-subtitle">
+                                Acompanhe conformidade, registre ocorrências e mantenha rastreabilidade com um painel pensado para rotinas de governança.
+                            </p>
+                        </div>
+                        <div className="login-showcase-visual" aria-hidden="true">
+                            <img src={`${import.meta.env.BASE_URL}hotel-login-hero.svg`} alt="" />
+                        </div>
+                        <div className="login-showcase-metrics" aria-hidden="true">
+                            <article className="login-metric-card">
+                                <strong>Monitoramento</strong>
+                                <span>Status e histórico em uma única visão.</span>
+                            </article>
+                            <article className="login-metric-card">
+                                <strong>Rastreabilidade</strong>
+                                <span>Registros auditáveis para operação e gestão.</span>
+                            </article>
+                        </div>
+                    </section>
 
-                    <label>
-                        E-mail corporativo
-                        <input
-                            type="email"
-                            value={loginEmail}
-                            onChange={(event) => setLoginEmail(event.target.value)}
-                            placeholder="ex.: supervisor@inspegov.com"
-                            autoComplete="username"
-                            required
-                        />
-                    </label>
+                    <form className="login-card" onSubmit={handleLogin}>
+                        <div className="login-card-header">
+                            <p className="kicker login-kicker">Acesso seguro</p>
+                            <h2>Entrar no sistema</h2>
+                            <p className="login-card-subtitle">Use suas credenciais corporativas para acessar o painel de inspeções.</p>
+                        </div>
 
-                    <label>
-                        Senha
-                        <input
-                            type="password"
-                            value={loginPassword}
-                            onChange={(event) => setLoginPassword(event.target.value)}
-                            placeholder="Digite sua senha"
-                            autoComplete="current-password"
-                            required
-                        />
-                    </label>
+                        <label>
+                            E-mail corporativo
+                            <input
+                                type="email"
+                                value={loginEmail}
+                                onChange={(event) => setLoginEmail(event.target.value)}
+                                placeholder="ex.: supervisor@inspegov.com"
+                                autoComplete="username"
+                                required
+                            />
+                        </label>
 
-                    {authError ? <p className="login-error">{authError}</p> : null}
+                        <label>
+                            Senha
+                            <input
+                                type="password"
+                                value={loginPassword}
+                                onChange={(event) => setLoginPassword(event.target.value)}
+                                placeholder="Digite sua senha"
+                                autoComplete="current-password"
+                                required
+                            />
+                        </label>
 
-                    <button type="submit" className="save-btn login-btn" disabled={isAuthenticating}>
-                        {isAuthenticating ? (
-                            <>
-                                <span className="inline-spinner" aria-hidden="true" />
-                                Autenticando...
-                            </>
-                        ) : (
-                            'Entrar no sistema'
-                        )}
-                    </button>
+                        {authError ? <p className="login-error">{authError}</p> : null}
 
-                    <button type="button" className="ghost-btn login-reset-btn" onClick={handleResetPassword}>
-                        Esqueci minha senha
-                    </button>
-                </form>
+                        <button type="submit" className="save-btn login-btn" disabled={isAuthenticating}>
+                            {isAuthenticating ? (
+                                <>
+                                    <span className="inline-spinner" aria-hidden="true" />
+                                    Autenticando...
+                                </>
+                            ) : (
+                                'Entrar no sistema'
+                            )}
+                        </button>
+
+                        <button type="button" className="ghost-btn login-reset-btn" onClick={handleResetPassword}>
+                            Redefinir senha
+                        </button>
+                    </form>
+                </div>
             </div>
         )
     }
@@ -905,13 +1097,24 @@ function App() {
                 ))}
             </div>
 
-            <header className="topbar">
+            <header
+                className="topbar"
+                role="button"
+                tabIndex={0}
+                onClick={scrollToTop}
+                onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        scrollToTop()
+                    }
+                }}
+            >
                 <div>
                     <p className="kicker">InspeGov</p>
                     <h1>Gestão de Governança</h1>
                     <p className="subtitle">Painel de controle e monitoramento de qualidade.</p>
                 </div>
-                <div className="user-profile">
+                <div className="user-profile" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
                     <div className="avatar">{userInitials}</div>
                     <div className="user-info">
                         <strong>{userDisplayName}</strong>
@@ -934,11 +1137,16 @@ function App() {
                         <div className="progress-bar-container"><div className="progress-fill" style={{ width: `${stats.conformidadePercentual}%` }}></div></div>
                         <span className="stat-foot">{stats.conformes} inspeções conformes</span>
                     </div>
-                    <div className="stat-card danger">
-                        <span className="stat-label">Retrabalho</span>
-                        <strong className="stat-value">{stats.retrabalhoPercentual}%</strong>
-                        <span className="stat-foot">{stats.retrabalho} inspeções com pendência</span>
-                    </div>
+                    <button type="button" className={`stat-card danger interactive ${isFilterActive && viewStatus === 'Retrabalho' && viewReworkExecution === 'Todos' ? 'active' : ''}`} onClick={showAllReworks}>
+                        <span className="stat-label">Retrabalhos totais</span>
+                        <strong className="stat-value">{stats.retrabalho}</strong>
+                        <span className="stat-foot">{stats.retrabalhoExecutado} executados e {stats.retrabalhoPendente} pendentes</span>
+                    </button>
+                    <button type="button" className={`stat-card warning interactive ${isFilterActive && viewStatus === 'Retrabalho' && viewReworkExecution === 'Pendentes' ? 'active' : ''}`} onClick={showPendingReworks}>
+                        <span className="stat-label">Retrabalho não executado</span>
+                        <strong className="stat-value">{stats.retrabalhoPendente}</strong>
+                        <span className="stat-foot">Clique para listar apenas os pendentes das camareiras</span>
+                    </button>
                 </section>
 
                 <section className="panel form-panel">
@@ -964,6 +1172,30 @@ function App() {
                                 ))}
                             </select>
                         </label>
+
+                        <div className="two-columns">
+                            <label>
+                                Camareira
+                                <input
+                                    type="text"
+                                    value={housekeeper}
+                                    onChange={(event) => setHousekeeper(event.target.value)}
+                                    placeholder="Nome da camareira"
+                                    required
+                                />
+                            </label>
+
+                            <label>
+                                Inspetor(a)
+                                <input
+                                    type="text"
+                                    value={inspector}
+                                    onChange={(event) => setInspector(event.target.value)}
+                                    placeholder="Quem inspecionou"
+                                    required
+                                />
+                            </label>
+                        </div>
 
                         <div className="status-group" role="radiogroup" aria-label="Status da inspeção">
                             <button
@@ -1045,6 +1277,7 @@ function App() {
                                     onChange={(event) => {
                                         setViewStartDate(event.target.value)
                                         setIsFilterActive(true)
+                                        setActiveViewPreset(null)
                                     }}
                                 />
                             </label>
@@ -1056,6 +1289,7 @@ function App() {
                                     onChange={(event) => {
                                         setViewEndDate(event.target.value)
                                         setIsFilterActive(true)
+                                        setActiveViewPreset(null)
                                     }}
                                 />
                             </label>
@@ -1066,11 +1300,27 @@ function App() {
                                     onChange={(event) => {
                                         setViewStatus(event.target.value as ViewStatusFilter)
                                         setIsFilterActive(true)
+                                        setActiveViewPreset(null)
                                     }}
                                 >
                                     <option value="Todos">Todos</option>
                                     <option value="Conforme">Conforme</option>
                                     <option value="Retrabalho">Retrabalho</option>
+                                </select>
+                            </label>
+                            <label>
+                                Execução
+                                <select
+                                    value={viewReworkExecution}
+                                    onChange={(event) => {
+                                        setViewReworkExecution(event.target.value as ReworkExecutionFilter)
+                                        setIsFilterActive(true)
+                                        setActiveViewPreset(null)
+                                    }}
+                                >
+                                    <option value="Todos">Todos</option>
+                                    <option value="Pendentes">Pendentes</option>
+                                    <option value="Executados">Executados</option>
                                 </select>
                             </label>
                             <label>
@@ -1081,19 +1331,32 @@ function App() {
                                     onChange={(event) => {
                                         setViewSearch(event.target.value)
                                         setIsFilterActive(true)
+                                        setActiveViewPreset(null)
                                     }}
-                                    placeholder="UH ou observação"
+                                    placeholder="UH, observação, camareira ou inspetor(a)"
                                 />
                             </label>
                         </div>
                         <div className="view-presets">
-                            <button type="button" className="ghost-btn" onClick={() => applyViewPreset('today')}>
+                            <button
+                                type="button"
+                                className={activeViewPreset === 'today' ? 'ghost-btn active-filter-preset' : 'ghost-btn'}
+                                onClick={() => applyViewPreset('today')}
+                            >
                                 Hoje
                             </button>
-                            <button type="button" className="ghost-btn" onClick={() => applyViewPreset('week')}>
+                            <button
+                                type="button"
+                                className={activeViewPreset === 'week' ? 'ghost-btn active-filter-preset' : 'ghost-btn'}
+                                onClick={() => applyViewPreset('week')}
+                            >
                                 Últimos 7 dias
                             </button>
-                            <button type="button" className="ghost-btn" onClick={() => applyViewPreset('month')}>
+                            <button
+                                type="button"
+                                className={activeViewPreset === 'month' ? 'ghost-btn active-filter-preset' : 'ghost-btn'}
+                                onClick={() => applyViewPreset('month')}
+                            >
                                 Mês atual
                             </button>
                         </div>
@@ -1116,7 +1379,7 @@ function App() {
 
                     {isFilterActive ? (
                         <p className="filter-summary">
-                            {viewedRecords.length} registros pelos filtros atuais para visualização/exportação. Conforme: {exportConformes} | Retrabalho: {exportRetrabalho}
+                            {viewedRecords.length} registros pelos filtros atuais para visualização/exportação. Conforme: {exportConformes} | Retrabalho: {exportRetrabalho} | Pendentes: {exportRetrabalhoPendente}
                         </p>
                     ) : null}
 
@@ -1136,16 +1399,43 @@ function App() {
                             </div>
                         ) : (
                             viewedRecords.map((record) => (
-                                <article key={record.firestoreId ?? record.id} className="record-card" role="listitem">
+                                <article
+                                    key={record.firestoreId ?? record.id}
+                                    className={`record-card ${isReworkPending(record) ? 'rework-pending-card' : ''} ${record.status === 'Retrabalho' && record.reworkDone ? 'rework-done-card' : ''}`}
+                                    role="listitem"
+                                >
                                     <div className="record-top">
                                         <strong>UH {record.uh}</strong>
-                                        <span className={getStatusClassName(record.status)}>{record.status}</span>
+                                        <div className="record-top-badges">
+                                            <span className={getStatusClassName(record.status)}>{record.status}</span>
+                                            {record.status === 'Retrabalho' ? (
+                                                <span className={record.reworkDone ? 'rework-state-badge done' : 'rework-state-badge pending'}>
+                                                    {record.reworkDone ? 'Executado' : 'Pendente'}
+                                                </span>
+                                            ) : null}
+                                        </div>
                                     </div>
+                                    {record.status === 'Retrabalho' ? (
+                                        <div className={record.reworkDone ? 'rework-alert done' : 'rework-alert pending'}>
+                                            <span className="rework-alert-dot" aria-hidden="true" />
+                                            <div>
+                                                <strong>{record.reworkDone ? 'Retrabalho concluído' : 'Retrabalho aguardando execução'}</strong>
+                                                <span>
+                                                    {record.reworkDone
+                                                        ? `Finalizado em ${formatDateTimeBR(record.reworkCompletedAt)}${record.reworkCompletedByEmail ? ` por ${record.reworkCompletedByEmail}` : ''}`
+                                                        : 'Deixe esta UH em atenção até a camareira concluir a correção.'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ) : null}
                                     <p>
-                                        <b>Data:</b> {formatDateBR(record.date)}
+                                        <b>Camareira:</b> {record.housekeeper || 'Não informado'}
                                     </p>
                                     <p>
-                                        <b>Mês:</b> {formatMonthBR(record.month)}
+                                        <b>Inspetor(a):</b> {record.inspector || 'Não informado'}
+                                    </p>
+                                    <p>
+                                        <b>Data:</b> {formatDateBR(record.date)}
                                     </p>
                                     <p>
                                         <b>Hora:</b> {record.time}
@@ -1154,6 +1444,16 @@ function App() {
                                         <b>Observação:</b> {record.note || 'Sem observação'}
                                     </p>
                                     <div className="card-actions">
+                                        {isReworkPending(record) ? (
+                                            <button
+                                                type="button"
+                                                className="card-btn highlight"
+                                                onClick={() => handleMarkReworkDone(record)}
+                                                disabled={!record.firestoreId}
+                                            >
+                                                Marcar retrabalho executado
+                                            </button>
+                                        ) : null}
                                         <button type="button" className="card-btn" onClick={() => handleEditRecord(record)}>
                                             Editar
                                         </button>
@@ -1206,6 +1506,30 @@ function App() {
                                 </select>
                             </label>
 
+                            <div className="two-columns">
+                                <label>
+                                    Camareira
+                                    <input
+                                        type="text"
+                                        value={editHousekeeper}
+                                        onChange={(event) => setEditHousekeeper(event.target.value)}
+                                        placeholder="Nome da camareira"
+                                        required
+                                    />
+                                </label>
+
+                                <label>
+                                    Inspetor(a)
+                                    <input
+                                        type="text"
+                                        value={editInspector}
+                                        onChange={(event) => setEditInspector(event.target.value)}
+                                        placeholder="Quem inspecionou"
+                                        required
+                                    />
+                                </label>
+                            </div>
+
                             <div className="status-group" role="radiogroup" aria-label="Status da inspeção">
                                 <button
                                     type="button"
@@ -1226,6 +1550,17 @@ function App() {
                                     Retrabalho
                                 </button>
                             </div>
+
+                            {editStatus === 'Retrabalho' ? (
+                                <label className="checkbox-field">
+                                    <input
+                                        type="checkbox"
+                                        checked={editReworkDone}
+                                        onChange={(event) => setEditReworkDone(event.target.checked)}
+                                    />
+                                    <span>Retrabalho realizado</span>
+                                </label>
+                            ) : null}
 
                             <div className="three-columns">
                                 <label>
@@ -1272,12 +1607,32 @@ function App() {
                     <div className="confirm-card zoom-in-soft">
                         <h3>{confirmDialogTitle}</h3>
                         <p>{confirmDialogMessage}</p>
+                        {confirmDialog.action === 'limpar' ? (
+                            <div className="confirm-password-block">
+                                <label>
+                                    Confirme com sua senha
+                                    <input
+                                        type="password"
+                                        value={clearRecordsPassword}
+                                        onChange={(event) => {
+                                            setClearRecordsPassword(event.target.value)
+                                            if (clearRecordsError) {
+                                                setClearRecordsError('')
+                                            }
+                                        }}
+                                        placeholder="Digite a mesma senha do login"
+                                        autoComplete="current-password"
+                                    />
+                                </label>
+                                {clearRecordsError ? <p className="confirm-error">{clearRecordsError}</p> : null}
+                            </div>
+                        ) : null}
                         <div className="confirm-actions">
                             <button type="button" className="ghost-btn" onClick={closeConfirmDialog}>
                                 Cancelar
                             </button>
-                            <button type="button" className="danger-confirm" onClick={handleConfirmDialog}>
-                                Confirmar
+                            <button type="button" className="danger-confirm" onClick={handleConfirmDialog} disabled={isConfirmingClear}>
+                                {isConfirmingClear ? 'Validando...' : 'Confirmar'}
                             </button>
                         </div>
                     </div>
