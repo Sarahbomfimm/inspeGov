@@ -22,6 +22,7 @@ import {
 import { auth, db, firebaseReady } from './firebase'
 import './App.css'
 
+type HotelKey = 'praia' | 'express'
 type InspectionStatus = 'Conforme' | 'Retrabalho'
 type NoticeType = 'sucesso' | 'aviso' | 'info'
 type ViewStatusFilter = 'Todos' | InspectionStatus
@@ -40,6 +41,7 @@ interface InspectionRecord {
     reworkDone?: boolean
     reworkCompletedAt?: string
     reworkCompletedByEmail?: string
+    hotel?: string
     housekeeper: string
     inspector: string
     uh: string
@@ -63,9 +65,9 @@ interface ConfirmDialogState {
 }
 
 const STORAGE_KEY = 'inspegov-inspections-v1'
-const RECOVERY_NOTIFICATION_EMAIL = 'sarahbomfimm24@gmail.com'
+const RECOVERY_NOTIFICATION_EMAIL = import.meta.env.VITE_RECOVERY_NOTIFICATION_EMAIL?.trim() ?? ''
 
-const ROOM_RANGES: Array<[number, number]> = [
+const PRAIA_ROOM_RANGES: Array<[number, number]> = [
     [100, 115],
     [201, 215],
     [300, 315],
@@ -75,6 +77,16 @@ const ROOM_RANGES: Array<[number, number]> = [
     [700, 715],
     [801, 815],
     [901, 915],
+]
+
+const EXPRESS_ROOM_RANGES: Array<[number, number]> = [
+    [101, 110],
+    [201, 210],
+    [301, 308],
+    [401, 408],
+    [501, 508],
+    [601, 608],
+    [707, 708],
 ]
 
 const toTwoDigits = (value: number) => value.toString().padStart(2, '0')
@@ -94,9 +106,9 @@ const getNowValues = () => {
     }
 }
 
-const buildRooms = () => {
+const buildRooms = (ranges: Array<[number, number]>) => {
     const rooms: string[] = []
-    ROOM_RANGES.forEach(([start, end]) => {
+    ranges.forEach(([start, end]) => {
         for (let room = start; room <= end; room += 1) {
             rooms.push(room.toString())
         }
@@ -190,7 +202,14 @@ const scrollToTop = () => {
 }
 
 function App() {
-    const rooms = useMemo(() => buildRooms(), [])
+    const [selectedHotel, setSelectedHotel] = useState<HotelKey | null>(null)
+
+    const rooms = useMemo(() => {
+        if (selectedHotel === 'express') return buildRooms(EXPRESS_ROOM_RANGES)
+        if (selectedHotel === 'praia') return buildRooms(PRAIA_ROOM_RANGES)
+        return []
+    }, [selectedHotel])
+
     const initialNow = useMemo(() => getNowValues(), [])
 
     const [uh, setUh] = useState(rooms[0] ?? '')
@@ -261,7 +280,12 @@ function App() {
         }
     })
 
-    const viewedRecords = !isFilterActive ? [] : records.filter((record) => {
+    const filteredRecords = useMemo(() => {
+        if (!selectedHotel) return []
+        return records.filter((record) => (record.hotel ?? 'praia') === selectedHotel)
+    }, [records, selectedHotel])
+
+    const viewedRecords = !isFilterActive ? [] : filteredRecords.filter((record) => {
         if (viewStartDate && record.date < viewStartDate) {
             return false
         }
@@ -334,6 +358,13 @@ function App() {
     }, [])
 
     useEffect(() => {
+        if (rooms.length > 0) {
+            setUh(rooms[0])
+            setEditUh(rooms[0])
+        }
+    }, [rooms])
+
+    useEffect(() => {
         if (!auth) {
             setIsAuthLoading(false)
             setIsLoggedIn(false)
@@ -395,6 +426,7 @@ function App() {
                         reworkDone: typeof data.reworkDone === 'boolean' ? data.reworkDone : false,
                         reworkCompletedAt: typeof data.reworkCompletedAt === 'string' ? data.reworkCompletedAt : undefined,
                         reworkCompletedByEmail: typeof data.reworkCompletedByEmail === 'string' ? data.reworkCompletedByEmail : undefined,
+                        hotel: typeof data.hotel === 'string' ? data.hotel : 'praia',
                         housekeeper: typeof data.housekeeper === 'string' ? data.housekeeper : '',
                         inspector: typeof data.inspector === 'string' ? data.inspector : '',
                         uh: data.uh,
@@ -488,6 +520,7 @@ function App() {
                 setLoginEmail('')
                 setLoginPassword('')
                 setAuthError('')
+            setSelectedHotel(null)
             })
             .catch(() => {
                 pushNotification('Não foi possível encerrar a sessão.', 'aviso')
@@ -509,7 +542,7 @@ function App() {
 
             await addDoc(collection(db, 'passwordRecoveryRequests'), {
                 email: normalizedEmail,
-                destinationEmail: RECOVERY_NOTIFICATION_EMAIL,
+                destinationEmail: RECOVERY_NOTIFICATION_EMAIL || null,
                 requestedAt: new Date().toISOString(),
                 status: 'solicitado',
                 origin: 'login',
@@ -562,6 +595,7 @@ function App() {
             updatedByEmail: currentUser.email ?? '',
             reworkDone: false,
             housekeeper: housekeeper.trim(),
+            hotel: selectedHotel ?? 'praia',
             inspector: inspector.trim(),
             uh,
             status,
@@ -727,7 +761,7 @@ function App() {
     }
 
     const requestClearRecords = () => {
-        if (!records.length) {
+        if (!filteredRecords.length) {
             return
         }
 
@@ -791,7 +825,7 @@ function App() {
                 await reauthenticateWithCredential(currentUser, credential)
 
                 const batch = writeBatch(firestore)
-                records.forEach((record) => {
+                filteredRecords.forEach((record) => {
                     if (record.firestoreId) {
                         batch.delete(doc(firestore, 'inspections', record.firestoreId))
                     }
@@ -854,6 +888,7 @@ function App() {
     const exportRetrabalhoPendente = viewedRecords.filter((record) => isReworkPending(record)).length
 
     const exportRows = viewedRecords.map((item) => ({
+        Unidade: item.hotel === 'express' ? 'Pajuçara Express' : 'Pajuçara Praia Hotel',
         UH: item.uh,
         Camareira: item.housekeeper,
         Inspetor: item.inspector,
@@ -897,6 +932,7 @@ function App() {
             const worksheet = XLSX.utils.json_to_sheet(exportRows)
 
             worksheet['!cols'] = [
+                { wch: 26 },
                 { wch: 8 },
                 { wch: 22 },
                 { wch: 22 },
@@ -1003,6 +1039,7 @@ function App() {
     if (!isLoggedIn) {
         return (
             <div className="login-shell">
+
                 <div className="login-glow login-glow-one" />
                 <div className="login-glow login-glow-two" />
 
@@ -1087,6 +1124,69 @@ function App() {
         )
     }
 
+    if (!selectedHotel) {
+        return (
+            <div className="hotel-picker-shell">
+                <div className="hotel-picker-glow hotel-picker-glow-one" />
+                <div className="hotel-picker-glow hotel-picker-glow-two" />
+
+                <div className="hotel-picker-layout zoom-in">
+                    <div className="hotel-picker-header">
+                        <p className="kicker">InspeGov</p>
+                        <h1>Selecione a unidade</h1>
+                        <p className="hotel-picker-subtitle">
+                            Bem-vindo, <strong>{userDisplayName}</strong>. Escolha a unidade que deseja gerenciar.
+                        </p>
+                    </div>
+
+                    <div className="hotel-picker-cards">
+                        <button
+                            type="button"
+                            className="hotel-card"
+                            onClick={() => setSelectedHotel('praia')}
+                        >
+                            <span className="hotel-card-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M3 21H21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                                    <path d="M5 21V7L12 3L19 7V21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                                    <path d="M9 21V15H15V21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                                    <path d="M9 11H10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                                    <path d="M14 11H15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                                </svg>
+                            </span>
+                            <strong className="hotel-card-name">Pajuçara Praia Hotel</strong>
+                            <span className="hotel-card-desc">Unidade completa · Andares 1 a 9</span>
+                            <span className="hotel-card-arrow" aria-hidden="true">→</span>
+                        </button>
+
+                        <button
+                            type="button"
+                            className="hotel-card"
+                            onClick={() => setSelectedHotel('express')}
+                        >
+                            <span className="hotel-card-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/>
+                                    <path d="M3 9H21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                                    <path d="M9 9V21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                                    <path d="M13 13H17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                                    <path d="M13 17H17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                                </svg>
+                            </span>
+                            <strong className="hotel-card-name">Pajuçara Express</strong>
+                            <span className="hotel-card-desc">Unidade express · Andares 1 a 7</span>
+                            <span className="hotel-card-arrow" aria-hidden="true">→</span>
+                        </button>
+                    </div>
+
+                    <button type="button" className="ghost-btn hotel-picker-logout" onClick={handleLogout}>
+                        Sair da conta
+                    </button>
+                </div>
+            </div>
+        )
+    }
+
     return (
         <div className="app-shell">
             <div className="notifications" aria-live="polite">
@@ -1112,7 +1212,9 @@ function App() {
                 <div>
                     <p className="kicker">InspeGov</p>
                     <h1>Gestão de Governança</h1>
-                    <p className="subtitle">Painel de controle e monitoramento de qualidade.</p>
+                    <p className="subtitle">
+                        {selectedHotel === 'express' ? 'Pajuçara Express' : 'Pajuçara Praia Hotel'}
+                    </p>
                 </div>
                 <div className="user-profile" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
                     <div className="avatar">{userInitials}</div>
@@ -1121,6 +1223,7 @@ function App() {
                         <span>{loggedUserEmail || 'Unidade Central'}</span>
                     </div>
                     <button type="button" className="ghost-btn topbar-logout" onClick={handleLogout}>Sair</button>
+                    <button type="button" className="ghost-btn topbar-switch" onClick={() => setSelectedHotel(null)}>Trocar unidade</button>
                 </div>
             </header>
 
@@ -1372,7 +1475,7 @@ function App() {
                         <button type="button" onClick={handleExportExcel} disabled={!viewedRecords.length}>
                             Exportar Excel
                         </button>
-                        <button type="button" className="danger" onClick={requestClearRecords} disabled={!records.length}>
+                        <button type="button" className="danger" onClick={requestClearRecords} disabled={!filteredRecords.length}>
                             Limpar registros
                         </button>
                     </div>
