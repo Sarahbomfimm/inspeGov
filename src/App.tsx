@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
     EmailAuthProvider,
     onAuthStateChanged,
@@ -29,6 +29,8 @@ type ViewStatusFilter = 'Todos' | InspectionStatus
 type ReworkExecutionFilter = 'Todos' | 'Pendentes' | 'Executados'
 type ViewPreset = 'today' | 'week' | 'month' | null
 type ConfirmAction = 'excluir' | 'limpar'
+type WorkspaceView = 'overview' | 'inspections'
+type InspectionSection = 'report' | 'register'
 
 interface InspectionRecord {
     id: number
@@ -64,8 +66,26 @@ interface ConfirmDialogState {
     recordId?: string
 }
 
+interface DailyTrendItem {
+    date: string
+    label: string
+    total: number
+    conformes: number
+    retrabalho: number
+    height: number
+}
+
+interface PriorityRoomItem {
+    id: number
+    uh: string
+    housekeeper: string
+    note: string
+    daysPending: number
+}
+
 const STORAGE_KEY = 'inspegov-inspections-v1'
 const RECOVERY_NOTIFICATION_EMAIL = import.meta.env.VITE_RECOVERY_NOTIFICATION_EMAIL?.trim() ?? ''
+
 
 const PRAIA_ROOM_RANGES: Array<[number, number]> = [
     [100, 115],
@@ -203,6 +223,35 @@ const scrollToTop = () => {
 
 function App() {
     const [selectedHotel, setSelectedHotel] = useState<HotelKey | null>(null)
+    const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+        const saved = localStorage.getItem('inspegov-theme')
+        return saved === 'light' || saved === 'dark' ? saved : 'dark'
+    })
+
+    useEffect(() => {
+        document.body.classList.remove('light-theme', 'dark-theme')
+        document.body.classList.add(`${theme}-theme`)
+    }, [theme])
+
+    const toggleTheme = () => {
+        setTheme((prev) => {
+            const next = prev === 'light' ? 'dark' : 'light'
+            localStorage.setItem('inspegov-theme', next)
+            return next
+        })
+    }
+
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+        return localStorage.getItem('inspegov-sidebar-collapsed') === 'true'
+    })
+
+    const toggleSidebarCollapsed = () => {
+        setIsSidebarCollapsed((prev) => {
+            const next = !prev
+            localStorage.setItem('inspegov-sidebar-collapsed', String(next))
+            return next
+        })
+    }
 
     const rooms = useMemo(() => {
         if (selectedHotel === 'express') return buildRooms(EXPRESS_ROOM_RANGES)
@@ -253,6 +302,17 @@ function App() {
     const [viewSearch, setViewSearch] = useState('')
     const [isFilterActive, setIsFilterActive] = useState(false)
     const [activeViewPreset, setActiveViewPreset] = useState<ViewPreset>(null)
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+    const [workspaceView, setWorkspaceView] = useState<WorkspaceView>('overview')
+    const [inspectionSection, setInspectionSection] = useState<InspectionSection>('report')
+    const [currentMonthKey, setCurrentMonthKey] = useState(() => getNowValues().month)
+    const menuTriggerRef = useRef<HTMLButtonElement | null>(null)
+    const quickSidebarRef = useRef<HTMLElement | null>(null)
+
+    const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
+    const [calendarMonth, setCalendarMonth] = useState(() => new Date())
+    const [tempStartDate, setTempStartDate] = useState<string | null>(null)
+    const datePickerRef = useRef<HTMLDivElement | null>(null)
 
     const [notifications, setNotifications] = useState<NotificationItem[]>([])
     const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState>({
@@ -285,55 +345,77 @@ function App() {
         return records.filter((record) => (record.hotel ?? 'praia') === selectedHotel)
     }, [records, selectedHotel])
 
-    const viewedRecords = !isFilterActive ? [] : filteredRecords.filter((record) => {
-        if (viewStartDate && record.date < viewStartDate) {
-            return false
-        }
+    const viewedRecords = useMemo(
+        () =>
+            filteredRecords.filter((record) => {
+                if (isFilterActive) {
+                    if (viewStartDate && record.date < viewStartDate) {
+                        return false
+                    }
 
-        if (viewEndDate && record.date > viewEndDate) {
-            return false
-        }
+                    if (viewEndDate && record.date > viewEndDate) {
+                        return false
+                    }
 
-        if (viewStatus !== 'Todos' && record.status !== viewStatus) {
-            return false
-        }
+                    if (viewStatus !== 'Todos' && record.status !== viewStatus) {
+                        return false
+                    }
 
-        if (viewReworkExecution !== 'Todos') {
-            if (record.status !== 'Retrabalho') {
-                return false
-            }
+                    if (viewReworkExecution !== 'Todos') {
+                        if (record.status !== 'Retrabalho') {
+                            return false
+                        }
 
-            if (viewReworkExecution === 'Pendentes' && record.reworkDone) {
-                return false
-            }
+                        if (viewReworkExecution === 'Pendentes' && record.reworkDone) {
+                            return false
+                        }
 
-            if (viewReworkExecution === 'Executados' && !record.reworkDone) {
-                return false
-            }
-        }
+                        if (viewReworkExecution === 'Executados' && !record.reworkDone) {
+                            return false
+                        }
+                    }
 
-        const searchTerm = viewSearch.trim().toLowerCase()
-        if (searchTerm) {
-            const uhMatch = record.uh.toLowerCase().includes(searchTerm)
-            const noteMatch = record.note.toLowerCase().includes(searchTerm)
-            const housekeeperMatch = (record.housekeeper ?? '').toLowerCase().includes(searchTerm)
-            const inspectorMatch = (record.inspector ?? '').toLowerCase().includes(searchTerm)
-            if (!uhMatch && !noteMatch && !housekeeperMatch && !inspectorMatch) {
-                return false
-            }
-        }
+                    const searchTerm = viewSearch.trim().toLowerCase()
+                    if (searchTerm) {
+                        const uhMatch = record.uh.toLowerCase().includes(searchTerm)
+                        const noteMatch = record.note.toLowerCase().includes(searchTerm)
+                        const housekeeperMatch = (record.housekeeper ?? '').toLowerCase().includes(searchTerm)
+                        const inspectorMatch = (record.inspector ?? '').toLowerCase().includes(searchTerm)
+                        if (!uhMatch && !noteMatch && !housekeeperMatch && !inspectorMatch) {
+                            return false
+                        }
+                    }
+                }
 
-        return true
-    })
+                return true
+            }),
+        [
+            filteredRecords,
+            isFilterActive,
+            viewStartDate,
+            viewEndDate,
+            viewStatus,
+            viewReworkExecution,
+            viewSearch,
+        ],
+    )
 
-    const stats = useMemo(() => {
-        const total = viewedRecords.length
-        const conformes = viewedRecords.filter((r) => r.status === 'Conforme').length
+    const currentMonthRecords = useMemo(
+        () =>
+            filteredRecords.filter((record) => {
+                const recordMonth = record.month || getMonthFromDate(record.date)
+                return recordMonth === currentMonthKey
+            }),
+        [filteredRecords, currentMonthKey],
+    )
+
+    const monthStats = useMemo(() => {
+        const total = currentMonthRecords.length
+        const conformes = currentMonthRecords.filter((r) => r.status === 'Conforme').length
         const retrabalho = total - conformes
-        const retrabalhoPendente = viewedRecords.filter((record) => isReworkPending(record)).length
-        const retrabalhoExecutado = viewedRecords.filter((record) => record.status === 'Retrabalho' && record.reworkDone).length
+        const retrabalhoPendente = currentMonthRecords.filter((record) => isReworkPending(record)).length
+        const retrabalhoExecutado = currentMonthRecords.filter((record) => record.status === 'Retrabalho' && record.reworkDone).length
         const conformidadePercentual = total > 0 ? Math.round((conformes / total) * 100) : 0
-        const retrabalhoPercentual = total > 0 ? Math.round((retrabalho / total) * 100) : 0
 
         return {
             total,
@@ -342,9 +424,170 @@ function App() {
             retrabalhoPendente,
             retrabalhoExecutado,
             conformidadePercentual,
-            retrabalhoPercentual,
         }
-    }, [viewedRecords])
+    }, [currentMonthRecords])
+
+    const currentMonthLabel = useMemo(() => {
+        const date = new Date(`${currentMonthKey}-01T00:00:00`)
+        const formatted = new Intl.DateTimeFormat('pt-BR', {
+            month: 'long',
+            year: 'numeric',
+        }).format(date)
+
+        return formatted.charAt(0).toUpperCase() + formatted.slice(1)
+    }, [currentMonthKey])
+
+    const dashboardAnalytics = useMemo(() => {
+        const now = new Date()
+        now.setHours(0, 0, 0, 0)
+        const targetConformity = 80
+
+        const dayMap = new Map<string, { total: number; conformes: number; retrabalho: number }>()
+        const uhRiskMap = new Map<string, { total: number; pendentes: number }>()
+        const pendingRooms: PriorityRoomItem[] = []
+
+        currentMonthRecords.forEach((record) => {
+            const currentDay = dayMap.get(record.date) ?? { total: 0, conformes: 0, retrabalho: 0 }
+            currentDay.total += 1
+            if (record.status === 'Conforme') {
+                currentDay.conformes += 1
+            } else {
+                currentDay.retrabalho += 1
+            }
+            dayMap.set(record.date, currentDay)
+
+            if (record.status === 'Retrabalho') {
+                const uhRisk = uhRiskMap.get(record.uh) ?? { total: 0, pendentes: 0 }
+                uhRisk.total += 1
+                if (!record.reworkDone) {
+                    uhRisk.pendentes += 1
+                }
+                uhRiskMap.set(record.uh, uhRisk)
+
+            }
+
+            if (isReworkPending(record)) {
+                const pendingDate = new Date(`${record.date}T00:00:00`)
+                pendingDate.setHours(0, 0, 0, 0)
+                const diffMs = now.getTime() - pendingDate.getTime()
+                const daysPending = Math.max(0, Math.floor(diffMs / 86400000))
+
+                pendingRooms.push({
+                    id: record.id,
+                    uh: record.uh,
+                    housekeeper: record.housekeeper || 'Não informado',
+                    note: record.note || 'Sem observação registrada',
+                    daysPending,
+                })
+            }
+        })
+
+        const latest7Days: DailyTrendItem[] = []
+        for (let offset = 6; offset >= 0; offset -= 1) {
+            const date = new Date(now)
+            date.setDate(now.getDate() - offset)
+            const isoDate = date.toISOString().slice(0, 10)
+            const item = dayMap.get(isoDate) ?? { total: 0, conformes: 0, retrabalho: 0 }
+
+            latest7Days.push({
+                date: isoDate,
+                label: date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+                total: item.total,
+                conformes: item.conformes,
+                retrabalho: item.retrabalho,
+                height: 0,
+            })
+        }
+
+        const maxTotal = Math.max(...latest7Days.map((day) => day.total), 1)
+        const trend = latest7Days.map((day) => ({
+            ...day,
+            height: day.total === 0 ? 8 : Math.max(12, Math.round((day.total / maxTotal) * 100)),
+        }))
+
+        const readWindowTotals = (startOffset: number, endOffset: number) => {
+            let total = 0
+            let conformes = 0
+
+            for (let offset = startOffset; offset <= endOffset; offset += 1) {
+                const date = new Date(now)
+                date.setDate(now.getDate() - offset)
+                const isoDate = date.toISOString().slice(0, 10)
+                const item = dayMap.get(isoDate)
+
+                if (!item) {
+                    continue
+                }
+
+                total += item.total
+                conformes += item.conformes
+            }
+
+            return {
+                total,
+                conformes,
+                conformity: total > 0 ? Math.round((conformes / total) * 100) : 0,
+            }
+        }
+
+        const currentWeek = readWindowTotals(0, 6)
+        const previousWeek = readWindowTotals(7, 13)
+        const volumeDelta = currentWeek.total - previousWeek.total
+        const volumeDeltaPercent =
+            previousWeek.total > 0
+                ? Math.round((volumeDelta / previousWeek.total) * 100)
+                : currentWeek.total > 0
+                    ? 100
+                    : 0
+        const conformityDelta = currentWeek.conformity - previousWeek.conformity
+
+        const oldestPendingDays = pendingRooms.length
+            ? Math.max(...pendingRooms.map((room) => room.daysPending))
+            : 0
+
+        const topRiskUh = [...uhRiskMap.entries()]
+            .sort((a, b) => b[1].pendentes - a[1].pendentes || b[1].total - a[1].total)
+            .at(0)
+
+        const priorityRooms = pendingRooms
+            .sort((a, b) => b.daysPending - a.daysPending || a.uh.localeCompare(b.uh))
+            .slice(0, 4)
+
+        const activeDays = new Set(currentMonthRecords.map((record) => record.date)).size
+        const averagePerDay = activeDays > 0 ? currentMonthRecords.length / activeDays : 0
+        const executionRate = monthStats.retrabalho > 0 ? Math.round((monthStats.retrabalhoExecutado / monthStats.retrabalho) * 100) : 100
+        const targetReached = monthStats.conformidadePercentual >= targetConformity
+        const operationalScore = Math.max(
+            0,
+            Math.min(
+                100,
+                Math.round(monthStats.conformidadePercentual - monthStats.retrabalhoPendente * 3 + monthStats.retrabalhoExecutado * 2),
+            ),
+        )
+
+        const pendingPressure =
+            monthStats.retrabalhoPendente >= 7 || oldestPendingDays >= 4
+                ? 'Atenção alta'
+                : monthStats.retrabalhoPendente >= 3 || oldestPendingDays >= 2
+                    ? 'Atenção moderada'
+                    : 'Situação estável'
+
+        return {
+            trend,
+            maxTotal,
+            oldestPendingDays,
+            topRiskUh,
+            priorityRooms,
+            averagePerDay,
+            executionRate,
+            targetConformity,
+            targetReached,
+            volumeDeltaPercent,
+            conformityDelta,
+            pendingPressure,
+            operationalScore,
+        }
+    }, [currentMonthRecords, monthStats])
 
     const userDisplayName = useMemo(() => getUserDisplayName(loggedUserEmail), [loggedUserEmail])
     const userInitials = useMemo(() => getUserInitials(loggedUserEmail), [loggedUserEmail])
@@ -467,6 +710,81 @@ function App() {
             return () => window.clearTimeout(timer)
         }
     }, [isLoggedIn, isRecordsLoading])
+
+    useEffect(() => {
+        if (!isSidebarOpen) {
+            return
+        }
+
+        const handlePointerDown = (event: PointerEvent) => {
+            const target = event.target
+            if (!(target instanceof Node)) {
+                return
+            }
+
+            if (menuTriggerRef.current?.contains(target) || quickSidebarRef.current?.contains(target)) {
+                return
+            }
+
+            setIsSidebarOpen(false)
+        }
+
+        const handleEscape = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setIsSidebarOpen(false)
+            }
+        }
+
+        document.addEventListener('pointerdown', handlePointerDown)
+        document.addEventListener('keydown', handleEscape)
+
+        return () => {
+            document.removeEventListener('pointerdown', handlePointerDown)
+            document.removeEventListener('keydown', handleEscape)
+        }
+    }, [isSidebarOpen])
+
+    useEffect(() => {
+        if (!isDatePickerOpen) {
+            return
+        }
+
+        const handlePointerDown = (event: PointerEvent) => {
+            const target = event.target
+            if (!(target instanceof Node)) {
+                return
+            }
+
+            if (datePickerRef.current?.contains(target)) {
+                return
+            }
+
+            setIsDatePickerOpen(false)
+        }
+
+        const handleEscape = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setIsDatePickerOpen(false)
+            }
+        }
+
+        document.addEventListener('pointerdown', handlePointerDown)
+        document.addEventListener('keydown', handleEscape)
+
+        return () => {
+            document.removeEventListener('pointerdown', handlePointerDown)
+            document.removeEventListener('keydown', handleEscape)
+        }
+    }, [isDatePickerOpen])
+
+    useEffect(() => {
+        const interval = window.setInterval(() => {
+            setCurrentMonthKey(getNowValues().month)
+        }, 60 * 60 * 1000)
+
+        return () => window.clearInterval(interval)
+    }, [])
+
 
     const pushNotification = (message: string, type: NoticeType = 'info') => {
         const id = Date.now() + Math.floor(Math.random() * 1000)
@@ -728,23 +1046,29 @@ function App() {
     }
 
     const showPendingReworks = () => {
-        setViewStartDate('')
-        setViewEndDate('')
+        const nowValues = getNowValues()
+        setViewStartDate(`${nowValues.month}-01`)
+        setViewEndDate(nowValues.date)
         setViewStatus('Retrabalho')
         setViewReworkExecution('Pendentes')
         setViewSearch('')
         setIsFilterActive(true)
         setActiveViewPreset(null)
+        setWorkspaceView('inspections')
+        setInspectionSection('report')
     }
 
     const showAllReworks = () => {
-        setViewStartDate('')
-        setViewEndDate('')
+        const nowValues = getNowValues()
+        setViewStartDate(`${nowValues.month}-01`)
+        setViewEndDate(nowValues.date)
         setViewStatus('Retrabalho')
         setViewReworkExecution('Todos')
         setViewSearch('')
         setIsFilterActive(true)
         setActiveViewPreset(null)
+        setWorkspaceView('inspections')
+        setInspectionSection('report')
     }
 
     const requestDeleteRecord = (recordId?: string) => {
@@ -760,16 +1084,6 @@ function App() {
         })
     }
 
-    const requestClearRecords = () => {
-        if (!filteredRecords.length) {
-            return
-        }
-
-        setConfirmDialog({
-            isOpen: true,
-            action: 'limpar',
-        })
-    }
 
     const closeConfirmDialog = () => {
         setClearRecordsPassword('')
@@ -852,6 +1166,7 @@ function App() {
         setViewSearch('')
         setIsFilterActive(false)
         setActiveViewPreset(null)
+        setTempStartDate(null)
     }
 
     const applyViewPreset = (preset: 'today' | 'week' | 'month') => {
@@ -861,26 +1176,194 @@ function App() {
         if (preset === 'today') {
             setViewStartDate(endDate)
             setViewEndDate(endDate)
+            setTempStartDate(endDate)
             setIsFilterActive(true)
             setActiveViewPreset('today')
+            setIsDatePickerOpen(false)
             return
         }
 
         if (preset === 'week') {
             const start = new Date(now)
             start.setDate(start.getDate() - 6)
-            setViewStartDate(start.toISOString().slice(0, 10))
+            const startStr = start.toISOString().slice(0, 10)
+            setViewStartDate(startStr)
             setViewEndDate(endDate)
+            setTempStartDate(startStr)
             setIsFilterActive(true)
             setActiveViewPreset('week')
+            setIsDatePickerOpen(false)
             return
         }
 
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-        setViewStartDate(startOfMonth.toISOString().slice(0, 10))
+        const startStr = startOfMonth.toISOString().slice(0, 10)
+        setViewStartDate(startStr)
         setViewEndDate(endDate)
+        setTempStartDate(startStr)
         setIsFilterActive(true)
         setActiveViewPreset('month')
+        setIsDatePickerOpen(false)
+    }
+
+    const handlePrevMonth = () => {
+        setCalendarMonth((prev) => {
+            const next = new Date(prev)
+            next.setMonth(prev.getMonth() - 1)
+            return next
+        })
+    }
+
+    const handleNextMonth = () => {
+        setCalendarMonth((prev) => {
+            const next = new Date(prev)
+            next.setMonth(prev.getMonth() + 1)
+            return next
+        })
+    }
+
+    const calendarMonthLabel = useMemo(() => {
+        const formatted = new Intl.DateTimeFormat('pt-BR', {
+            month: 'long',
+            year: 'numeric',
+        }).format(calendarMonth)
+        return formatted.charAt(0).toUpperCase() + formatted.slice(1)
+    }, [calendarMonth])
+
+    const calendarDays = useMemo(() => {
+        const year = calendarMonth.getFullYear()
+        const month = calendarMonth.getMonth()
+
+        const firstDayOfMonth = new Date(year, month, 1)
+        const startDayIndex = firstDayOfMonth.getDay()
+
+        const totalDays = new Date(year, month + 1, 0).getDate()
+
+        const prevMonthDaysCount = startDayIndex
+        const prevMonthYear = month === 0 ? year - 1 : year
+        const prevMonth = month === 0 ? 11 : month - 1
+        const totalDaysPrevMonth = new Date(prevMonthYear, prevMonth + 1, 0).getDate()
+
+        const days: Array<{ dateStr: string; dayNum: number; isCurrentMonth: boolean }> = []
+
+        for (let i = prevMonthDaysCount - 1; i >= 0; i--) {
+            const dayNum = totalDaysPrevMonth - i
+            const monthStr = (prevMonth + 1).toString().padStart(2, '0')
+            const dayStr = dayNum.toString().padStart(2, '0')
+            days.push({
+                dateStr: `${prevMonthYear}-${monthStr}-${dayStr}`,
+                dayNum,
+                isCurrentMonth: false,
+            })
+        }
+
+        for (let i = 1; i <= totalDays; i++) {
+            const monthStr = (month + 1).toString().padStart(2, '0')
+            const dayStr = i.toString().padStart(2, '0')
+            days.push({
+                dateStr: `${year}-${monthStr}-${dayStr}`,
+                dayNum: i,
+                isCurrentMonth: true,
+            })
+        }
+
+        const totalCells = 42
+        const nextMonthYear = month === 11 ? year + 1 : year
+        const nextMonth = month === 11 ? 0 : month + 1
+        const remainingCells = totalCells - days.length
+        for (let i = 1; i <= remainingCells; i++) {
+            const monthStr = (nextMonth + 1).toString().padStart(2, '0')
+            const dayStr = i.toString().padStart(2, '0')
+            days.push({
+                dateStr: `${nextMonthYear}-${monthStr}-${dayStr}`,
+                dayNum: i,
+                isCurrentMonth: false,
+            })
+        }
+
+        return days
+    }, [calendarMonth])
+
+    const handleCalendarDayClick = (dateStr: string) => {
+        if (!tempStartDate || (tempStartDate && viewEndDate)) {
+            setTempStartDate(dateStr)
+            setViewStartDate(dateStr)
+            setViewEndDate('')
+            setIsFilterActive(true)
+            setActiveViewPreset(null)
+        } else {
+            if (dateStr >= tempStartDate) {
+                setViewEndDate(dateStr)
+                setIsFilterActive(true)
+                setActiveViewPreset(null)
+                setIsDatePickerOpen(false)
+            } else {
+                setTempStartDate(dateStr)
+                setViewStartDate(dateStr)
+            }
+        }
+    }
+
+    const formattedDateRange = useMemo(() => {
+        const start = formatDateBR(viewStartDate)
+        if (!viewEndDate || viewStartDate === viewEndDate) {
+            return start
+        }
+        const end = formatDateBR(viewEndDate)
+        return `${start} - ${end}`
+    }, [viewStartDate, viewEndDate])
+
+    const navigateToOverview = () => {
+        setWorkspaceView('overview')
+        setIsSidebarOpen(false)
+    }
+
+    const openInspectionMenu = () => {
+        setWorkspaceView('inspections')
+    }
+
+    const navigateToInspectionReport = () => {
+        setWorkspaceView('inspections')
+        setInspectionSection('report')
+        setIsSidebarOpen(false)
+    }
+
+    const navigateToInspectionRegister = () => {
+        setWorkspaceView('inspections')
+        setInspectionSection('register')
+        setIsSidebarOpen(false)
+    }
+
+    const goToCurrentMonthReport = (pendingOnly: boolean) => {
+        const nowValues = getNowValues()
+        const monthStartDate = `${nowValues.month}-01`
+
+        setWorkspaceView('inspections')
+        setInspectionSection('report')
+        setViewStartDate(monthStartDate)
+        setViewEndDate(nowValues.date)
+        setViewSearch('')
+        setViewStatus(pendingOnly ? 'Retrabalho' : 'Todos')
+        setViewReworkExecution(pendingOnly ? 'Pendentes' : 'Todos')
+        setIsFilterActive(true)
+        setActiveViewPreset(null)
+        setIsSidebarOpen(false)
+    }
+
+
+    const navigateToPriorityUh = (uhCode: string) => {
+        const nowValues = getNowValues()
+
+        setWorkspaceView('inspections')
+        setInspectionSection('report')
+        setViewStartDate(`${nowValues.month}-01`)
+        setViewEndDate(nowValues.date)
+        setViewStatus('Retrabalho')
+        setViewReworkExecution('Pendentes')
+        setViewSearch(uhCode)
+        setIsFilterActive(true)
+        setActiveViewPreset(null)
+        setIsSidebarOpen(false)
     }
 
     const exportConformes = viewedRecords.filter((record) => record.status === 'Conforme').length
@@ -1043,6 +1526,16 @@ function App() {
                 <div className="login-glow login-glow-one" />
                 <div className="login-glow login-glow-two" />
 
+                <div className="login-theme-toggle-container">
+                    <button type="button" className="theme-toggle" onClick={toggleTheme} aria-label="Alternar tema">
+                        {theme === 'light' ? (
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                        ) : (
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                        )}
+                    </button>
+                </div>
+
                 <div className="login-layout zoom-in">
                     <section className="login-showcase">
                         <div className="login-showcase-mark">
@@ -1130,6 +1623,16 @@ function App() {
                 <div className="hotel-picker-glow hotel-picker-glow-one" />
                 <div className="hotel-picker-glow hotel-picker-glow-two" />
 
+                <div className="picker-theme-toggle-container">
+                    <button type="button" className="theme-toggle" onClick={toggleTheme} aria-label="Alternar tema">
+                        {theme === 'light' ? (
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                        ) : (
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                        )}
+                    </button>
+                </div>
+
                 <div className="hotel-picker-layout zoom-in">
                     <div className="hotel-picker-header">
                         <p className="kicker">InspeGov</p>
@@ -1188,7 +1691,7 @@ function App() {
     }
 
     return (
-        <div className="app-shell">
+        <div className={`app-shell ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
             <div className="notifications" aria-live="polite">
                 {notifications.map((notification) => (
                     <article key={notification.id} className={`notice notice-${notification.type}`}>
@@ -1216,42 +1719,314 @@ function App() {
                         {selectedHotel === 'express' ? 'Pajuçara Express' : 'Pajuçara Praia Hotel'}
                     </p>
                 </div>
-                <div className="user-profile" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
-                    <div className="avatar">{userInitials}</div>
-                    <div className="user-info">
-                        <strong>{userDisplayName}</strong>
-                        <span>{loggedUserEmail || 'Unidade Central'}</span>
+                <div className="topbar-actions" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+                    <div className="user-profile">
+                        <div className="avatar">{userInitials}</div>
+                        <div className="user-info">
+                            <strong>{userDisplayName}</strong>
+                            <span>{loggedUserEmail || 'Unidade Central'}</span>
+                        </div>
+                        <button type="button" className="theme-toggle" onClick={toggleTheme} aria-label="Alternar tema">
+                            {theme === 'light' ? (
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                            ) : (
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                            )}
+                        </button>
                     </div>
-                    <button type="button" className="ghost-btn topbar-logout" onClick={handleLogout}>Sair</button>
-                    <button type="button" className="ghost-btn topbar-switch" onClick={() => setSelectedHotel(null)}>Trocar unidade</button>
                 </div>
             </header>
 
-            <main className="content-grid">
+            <nav className="menu-trigger-row" aria-label="Menu rápido">
+                <button
+                    ref={menuTriggerRef}
+                    type="button"
+                    className={`menu-trigger-button ${isSidebarOpen ? 'active' : ''}`}
+                    onClick={() => setIsSidebarOpen((current) => !current)}
+                    aria-expanded={isSidebarOpen}
+                    aria-controls="quick-sidebar"
+                    aria-label="Abrir atalhos operacionais"
+                >
+                    <span className="menu-lines" aria-hidden="true">
+                        <span />
+                        <span />
+                        <span />
+                    </span>
+                    <span>Operações</span>
+                </button>
+            </nav>
+
+            {isSidebarOpen ? (
+                <div className="sidebar-backdrop" onClick={() => setIsSidebarOpen(false)} aria-hidden="true" />
+            ) : null}
+
+            <aside
+                ref={quickSidebarRef}
+                id="quick-sidebar"
+                className={`quick-sidebar ${isSidebarOpen ? 'open' : ''}`}
+                aria-hidden={!isSidebarOpen}
+            >
+                <div className="quick-sidebar-inner">
+                    <div className="sidebar-brand-row">
+                        <span className="sidebar-brand-logo">InspeGov</span>
+                        <button
+                            type="button"
+                            className="sidebar-collapse-btn-desktop"
+                            onClick={toggleSidebarCollapsed}
+                            aria-label={isSidebarCollapsed ? "Expandir menu" : "Recuar menu"}
+                        >
+                            {isSidebarCollapsed ? (
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                            ) : (
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                            )}
+                        </button>
+                    </div>
+                    <button 
+                        type="button" 
+                        className="sidebar-close-btn" 
+                        onClick={() => setIsSidebarOpen(false)}
+                        aria-label="Fechar menu"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                    <button
+                        type="button"
+                        className={workspaceView === 'overview' ? 'quick-link active' : 'quick-link'}
+                        onClick={navigateToOverview}
+                    >
+                        <span className="quick-link-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M4 19.5H20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                <path d="M7 16V10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                <path d="M12 16V6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                <path d="M17 16V12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                            </svg>
+                        </span>
+                        <span>Visão geral</span>
+                    </button>
+
+                    <button
+                        type="button"
+                        className={workspaceView === 'inspections' ? 'quick-link active' : 'quick-link'}
+                        onClick={openInspectionMenu}
+                    >
+                        <span className="quick-link-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M7 4.5H14L18.5 9V19.5H7V4.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                                <path d="M14 4.5V9H18.5" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                                <path d="M9.5 12H15.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                <path d="M9.5 15H15.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                            </svg>
+                        </span>
+                        <span>Inspeções</span>
+                    </button>
+
+                    {workspaceView === 'inspections' ? (
+                        <div className="quick-submenu">
+                            <button
+                                type="button"
+                                className={inspectionSection === 'report' ? 'quick-sublink active' : 'quick-sublink'}
+                                onClick={navigateToInspectionReport}
+                            >
+                                <span className="quick-link-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M5 19.5H19" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                        <path d="M8 16V11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                        <path d="M12 16V8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                        <path d="M16 16V13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                    </svg>
+                                </span>
+                                <span>Relatório de Inspeções</span>
+                            </button>
+                            <button
+                                type="button"
+                                className={inspectionSection === 'register' ? 'quick-sublink active' : 'quick-sublink'}
+                                onClick={navigateToInspectionRegister}
+                            >
+                                <span className="quick-link-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M12 5V19" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                        <path d="M5 12H19" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                    </svg>
+                                </span>
+                                <span>Registrar inspeção</span>
+                            </button>
+                        </div>
+                    ) : null}
+
+                    <div className="sidebar-footer-profile">
+                        <div className="user-profile-sidebar">
+                            <div className="avatar">{userInitials}</div>
+                            <div className="user-info-sidebar">
+                                <strong>{userDisplayName}</strong>
+                                <span>{loggedUserEmail || 'Unidade Central'}</span>
+                            </div>
+                        </div>
+                        <div className="sidebar-actions-row">
+                            <button type="button" className="sidebar-switch-btn" onClick={() => setSelectedHotel(null)}>Trocar unidade</button>
+                            <button type="button" className="sidebar-logout-btn" onClick={handleLogout}>Sair da conta</button>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <main className={`content-grid ${workspaceView === 'overview' ? 'view-overview' : inspectionSection === 'report' ? 'view-inspections-report' : 'view-inspections-register'}`}>
+                {workspaceView === 'overview' ? (
+                    <>
+                <section className="executive-dashboard">
+                    <article className="executive-hero-card">
+                        <p className="kicker">Radar Executivo</p>
+                        <h2>Painel do mês</h2>
+                        <p className="month-highlight">{currentMonthLabel}</p>
+
+                        <div className="executive-score-block" role="status" aria-live="polite">
+                            <div className="executive-score-top">
+                                <span>Score operacional</span>
+                                <strong>{dashboardAnalytics.operationalScore}%</strong>
+                            </div>
+                            <div className="executive-score-bar" aria-hidden="true">
+                                <span style={{ width: `${dashboardAnalytics.operationalScore}%` }} />
+                            </div>
+                            <div className="executive-score-foot">
+                                <span>Execução: {dashboardAnalytics.executionRate}%</span>
+                                <span>Média/dia: {dashboardAnalytics.averagePerDay.toFixed(1)}</span>
+                            </div>
+                        </div>
+
+                        <div className="executive-kpi-strip" aria-label="Indicadores executivos de desempenho">
+                            <article className="executive-kpi-pill">
+                                <span>Meta mínima</span>
+                                <strong>{dashboardAnalytics.targetConformity}%</strong>
+                            </article>
+
+                            <article className={`executive-kpi-pill ${dashboardAnalytics.targetReached ? 'good' : 'warning'}`}>
+                                <span>Status da meta</span>
+                                <strong>{dashboardAnalytics.targetReached ? 'Atingida' : 'Abaixo da meta'}</strong>
+                            </article>
+
+                            <article className="executive-kpi-pill">
+                                <span>Variação semanal</span>
+                                <strong>{dashboardAnalytics.volumeDeltaPercent >= 0 ? '+' : ''}{dashboardAnalytics.volumeDeltaPercent}%</strong>
+                            </article>
+
+                            <article className={`executive-kpi-pill ${dashboardAnalytics.pendingPressure === 'Atenção alta' ? 'danger' : dashboardAnalytics.pendingPressure === 'Atenção moderada' ? 'warning' : 'good'}`}>
+                                <span>Atenção</span>
+                                <strong>{dashboardAnalytics.pendingPressure}</strong>
+                            </article>
+                        </div>
+
+                        <div className="executive-actions">
+                            <button type="button" className="executive-action-btn" onClick={() => goToCurrentMonthReport(false)}>
+                                Ver relatório do mês
+                            </button>
+                            <button type="button" className="executive-action-btn warning" onClick={() => goToCurrentMonthReport(true)}>
+                                Ver só pendências
+                            </button>
+                        </div>
+                    </article>
+
+                    <div className="executive-side-grid">
+                        <article className="insight-card trend-card">
+                            <div className="insight-head">
+                                <h3>Últimos 7 dias</h3>
+                                <span>pico: {dashboardAnalytics.maxTotal} inspeções</span>
+                            </div>
+                            <div className="trend-chart" aria-label="Volume diário das inspeções nos últimos sete dias">
+                                {dashboardAnalytics.trend.map((day) => (
+                                    <div key={day.date} className="trend-column">
+                                        <span
+                                            className={`trend-bar ${day.retrabalho > day.conformes ? 'critical' : ''}`}
+                                            style={{ height: `${day.height}%` }}
+                                            title={`${day.label}: ${day.total} inspeções (${day.retrabalho} retrabalhos)`}
+                                        />
+                                        <strong>{day.total}</strong>
+                                        <small>{day.label}</small>
+                                    </div>
+                                ))}
+                            </div>
+                        </article>
+
+                        <article className="insight-card highlights-card">
+                            <div className="insight-head">
+                                <h3>Leitura rápida</h3>
+                                <span>agora</span>
+                            </div>
+                            <ul>
+                                <li>
+                                    UH crítica: <strong>{dashboardAnalytics.topRiskUh ? `UH ${dashboardAnalytics.topRiskUh[0]}` : '-'}</strong>
+                                </li>
+                                <li>
+                                    Pendências abertas: <strong>{monthStats.retrabalhoPendente}</strong>
+                                </li>
+                                <li>
+                                    Maior pendência: <strong>{dashboardAnalytics.oldestPendingDays} dia(s)</strong>
+                                </li>
+                            </ul>
+                        </article>
+                    </div>
+
+                    <article className="insight-card priority-card">
+                        <div className="insight-head">
+                            <h3>Prioridades imediatas</h3>
+                            <span>retrabalho pendente</span>
+                        </div>
+
+                        {!dashboardAnalytics.priorityRooms.length ? (
+                            <p className="priority-empty">Nenhuma pendência crítica no período. Excelente execução!</p>
+                        ) : (
+                            <div className="priority-list" role="list" aria-label="Lista de pendências prioritárias">
+                                {dashboardAnalytics.priorityRooms.map((room) => (
+                                    <button
+                                        key={room.id}
+                                        type="button"
+                                        className="priority-item"
+                                        role="listitem"
+                                        onClick={() => navigateToPriorityUh(room.uh)}
+                                        title={`Abrir relatório da UH ${room.uh}`}
+                                    >
+                                        <strong>UH {room.uh}</strong>
+                                        <span>{room.housekeeper}</span>
+                                        <em>{room.daysPending} dia(s) em aberto</em>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </article>
+                </section>
+
                 <section className="stats-row">
                     <div className="stat-card">
                         <span className="stat-label">Inspeções Totais</span>
-                        <strong className="stat-value">{stats.total}</strong>
-                        <span className="stat-foot">Baseado nos filtros de visualização ativos</span>
+                        <strong className="stat-value">{monthStats.total}</strong>
+                        <span className="stat-foot">
+                            {currentMonthLabel}
+                        </span>
                     </div>
                     <div className="stat-card">
                         <span className="stat-label">Conformidade</span>
-                        <strong className="stat-value">{stats.conformidadePercentual}%</strong>
-                        <div className="progress-bar-container"><div className="progress-fill" style={{ width: `${stats.conformidadePercentual}%` }}></div></div>
-                        <span className="stat-foot">{stats.conformes} inspeções conformes</span>
+                        <strong className="stat-value">{monthStats.conformidadePercentual}%</strong>
+                        <div className="progress-bar-container"><div className="progress-fill" style={{ width: `${monthStats.conformidadePercentual}%` }}></div></div>
+                        <span className="stat-foot">{monthStats.conformes} conformes</span>
                     </div>
                     <button type="button" className={`stat-card danger interactive ${isFilterActive && viewStatus === 'Retrabalho' && viewReworkExecution === 'Todos' ? 'active' : ''}`} onClick={showAllReworks}>
                         <span className="stat-label">Retrabalhos totais</span>
-                        <strong className="stat-value">{stats.retrabalho}</strong>
-                        <span className="stat-foot">{stats.retrabalhoExecutado} executados e {stats.retrabalhoPendente} pendentes</span>
+                        <strong className="stat-value">{monthStats.retrabalho}</strong>
+                        <span className="stat-foot">{monthStats.retrabalhoExecutado} exec. | {monthStats.retrabalhoPendente} pend.</span>
                     </button>
                     <button type="button" className={`stat-card warning interactive ${isFilterActive && viewStatus === 'Retrabalho' && viewReworkExecution === 'Pendentes' ? 'active' : ''}`} onClick={showPendingReworks}>
-                        <span className="stat-label">Retrabalho não executado</span>
-                        <strong className="stat-value">{stats.retrabalhoPendente}</strong>
-                        <span className="stat-foot">Clique para listar apenas os pendentes das camareiras</span>
+                        <span className="stat-label">Pendências abertas</span>
+                        <strong className="stat-value">{monthStats.retrabalhoPendente}</strong>
+                        <span className="stat-foot">Clique para listar apenas os pendentes</span>
                     </button>
                 </section>
+                    </>
+                ) : null}
 
+                {workspaceView === 'inspections' && inspectionSection === 'register' ? (
                 <section className="panel form-panel">
                     <div className="panel-header">
                         <span className="icon" aria-hidden="true">
@@ -1303,14 +2078,14 @@ function App() {
                         <div className="status-group" role="radiogroup" aria-label="Status da inspeção">
                             <button
                                 type="button"
-                                className={status === 'Conforme' ? 'status-btn active conforme' : 'status-btn'}
+                                className={status === 'Conforme' ? 'status-btn active conforme' : 'status-btn conforme'}
                                 onClick={() => setStatus('Conforme')}
                             >
                                 Conforme
                             </button>
                             <button
                                 type="button"
-                                className={status === 'Retrabalho' ? 'status-btn active retrabalho' : 'status-btn'}
+                                className={status === 'Retrabalho' ? 'status-btn active retrabalho' : 'status-btn retrabalho'}
                                 onClick={() => setStatus('Retrabalho')}
                             >
                                 Retrabalho
@@ -1354,7 +2129,9 @@ function App() {
                         </button>
                     </form>
                 </section>
+                ) : null}
 
+                {workspaceView === 'inspections' && inspectionSection === 'report' ? (
                 <section className="panel report-panel">
                     <div className="panel-header">
                         <span className="icon" aria-hidden="true">
@@ -1370,34 +2147,98 @@ function App() {
                     </div>
 
                     <div className="view-filters">
-                        <p className="filters-title">Filtros de consulta e exportação</p>
-                        <div className="fancy-date-range">
-                            <label>
-                                Início
-                                <input
-                                    type="date"
-                                    value={viewStartDate}
-                                    onChange={(event) => {
-                                        setViewStartDate(event.target.value)
-                                        setIsFilterActive(true)
-                                        setActiveViewPreset(null)
-                                    }}
-                                />
-                            </label>
-                            <label>
-                                Fim
-                                <input
-                                    type="date"
-                                    value={viewEndDate}
-                                    onChange={(event) => {
-                                        setViewEndDate(event.target.value)
-                                        setIsFilterActive(true)
-                                        setActiveViewPreset(null)
-                                    }}
-                                />
-                            </label>
-                            <label>
-                                Status
+                        <div className="minimal-filter-bar">
+                            <div className="filter-field date-range-field" ref={datePickerRef}>
+                                <label id="date-range-label">Período</label>
+                                <button
+                                    type="button"
+                                    className={`date-range-picker-trigger ${isDatePickerOpen ? 'active' : ''}`}
+                                    onClick={() => setIsDatePickerOpen((prev) => !prev)}
+                                    aria-labelledby="date-range-label"
+                                >
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="calendar-icon">
+                                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                                        <line x1="16" y1="2" x2="16" y2="6"></line>
+                                        <line x1="8" y1="2" x2="8" y2="6"></line>
+                                        <line x1="3" y1="10" x2="21" y2="10"></line>
+                                    </svg>
+                                    <span>{formattedDateRange}</span>
+                                </button>
+
+                                {isDatePickerOpen ? (
+                                    <div className="date-range-popover animate-fade-in">
+                                        <div className="popover-presets">
+                                            <p className="presets-title">Atalhos</p>
+                                            <button
+                                                type="button"
+                                                className={activeViewPreset === 'today' ? 'preset-btn active' : 'preset-btn'}
+                                                onClick={() => applyViewPreset('today')}
+                                            >
+                                                Hoje
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className={activeViewPreset === 'week' ? 'preset-btn active' : 'preset-btn'}
+                                                onClick={() => applyViewPreset('week')}
+                                            >
+                                                Últimos 7 dias
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className={activeViewPreset === 'month' ? 'preset-btn active' : 'preset-btn'}
+                                                onClick={() => applyViewPreset('month')}
+                                            >
+                                                Mês atual
+                                            </button>
+                                        </div>
+                                        <div className="popover-calendar">
+                                            <div className="calendar-header">
+                                                <button type="button" className="cal-nav-btn" onClick={handlePrevMonth} aria-label="Mês anterior">
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                                                </button>
+                                                <span className="calendar-month-label">{calendarMonthLabel}</span>
+                                                <button type="button" className="cal-nav-btn" onClick={handleNextMonth} aria-label="Próximo mês">
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                                                </button>
+                                            </div>
+                                            <div className="calendar-weekdays">
+                                                {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((day) => (
+                                                    <span key={day} className="weekday">{day}</span>
+                                                ))}
+                                            </div>
+                                            <div className="calendar-grid">
+                                                {calendarDays.map((cell) => {
+                                                    const isSelectedStart = cell.dateStr === viewStartDate
+                                                    const isSelectedEnd = cell.dateStr === viewEndDate
+                                                    const isInRange = viewEndDate && cell.dateStr > viewStartDate && cell.dateStr < viewEndDate
+                                                    const isTempSelected = cell.dateStr === tempStartDate && !viewEndDate
+
+                                                    let cellClass = 'calendar-day'
+                                                    if (!cell.isCurrentMonth) cellClass += ' outside-month'
+                                                    if (isSelectedStart) cellClass += ' range-start'
+                                                    if (isSelectedEnd) cellClass += ' range-end'
+                                                    if (isInRange) cellClass += ' range-mid'
+                                                    if (isTempSelected) cellClass += ' range-temp'
+
+                                                    return (
+                                                        <button
+                                                            key={cell.dateStr}
+                                                            type="button"
+                                                            className={cellClass}
+                                                            onClick={() => handleCalendarDayClick(cell.dateStr)}
+                                                        >
+                                                            {cell.dayNum}
+                                                        </button>
+                                                    )
+                                                })}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : null}
+                            </div>
+
+                            <div className="filter-field">
+                                <label id="status-filter-label">Status</label>
                                 <select
                                     value={viewStatus}
                                     onChange={(event) => {
@@ -1405,14 +2246,16 @@ function App() {
                                         setIsFilterActive(true)
                                         setActiveViewPreset(null)
                                     }}
+                                    aria-labelledby="status-filter-label"
                                 >
                                     <option value="Todos">Todos</option>
                                     <option value="Conforme">Conforme</option>
                                     <option value="Retrabalho">Retrabalho</option>
                                 </select>
-                            </label>
-                            <label>
-                                Execução
+                            </div>
+
+                            <div className="filter-field">
+                                <label id="exec-filter-label">Execução</label>
                                 <select
                                     value={viewReworkExecution}
                                     onChange={(event) => {
@@ -1420,52 +2263,41 @@ function App() {
                                         setIsFilterActive(true)
                                         setActiveViewPreset(null)
                                     }}
+                                    aria-labelledby="exec-filter-label"
                                 >
                                     <option value="Todos">Todos</option>
                                     <option value="Pendentes">Pendentes</option>
                                     <option value="Executados">Executados</option>
                                 </select>
-                            </label>
-                            <label>
-                                Buscar
-                                <input
-                                    type="text"
-                                    value={viewSearch}
-                                    onChange={(event) => {
-                                        setViewSearch(event.target.value)
-                                        setIsFilterActive(true)
-                                        setActiveViewPreset(null)
-                                    }}
-                                    placeholder="UH, observação, camareira ou inspetor(a)"
-                                />
-                            </label>
+                            </div>
+
+                            <div className="filter-field search-field">
+                                <label id="search-filter-label">Buscar</label>
+                                <div className="search-input-wrapper">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="search-icon">
+                                        <circle cx="11" cy="11" r="8"></circle>
+                                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                                    </svg>
+                                    <input
+                                        type="text"
+                                        value={viewSearch}
+                                        onChange={(event) => {
+                                            setViewSearch(event.target.value)
+                                            setIsFilterActive(true)
+                                            setActiveViewPreset(null)
+                                        }}
+                                        placeholder="UH, observação, camareira..."
+                                        aria-labelledby="search-filter-label"
+                                    />
+                                </div>
+                            </div>
+
+                            {isFilterActive ? (
+                                <button type="button" className="clear-filters-btn" onClick={clearViewFilters}>
+                                    Limpar
+                                </button>
+                            ) : null}
                         </div>
-                        <div className="view-presets">
-                            <button
-                                type="button"
-                                className={activeViewPreset === 'today' ? 'ghost-btn active-filter-preset' : 'ghost-btn'}
-                                onClick={() => applyViewPreset('today')}
-                            >
-                                Hoje
-                            </button>
-                            <button
-                                type="button"
-                                className={activeViewPreset === 'week' ? 'ghost-btn active-filter-preset' : 'ghost-btn'}
-                                onClick={() => applyViewPreset('week')}
-                            >
-                                Últimos 7 dias
-                            </button>
-                            <button
-                                type="button"
-                                className={activeViewPreset === 'month' ? 'ghost-btn active-filter-preset' : 'ghost-btn'}
-                                onClick={() => applyViewPreset('month')}
-                            >
-                                Mês atual
-                            </button>
-                        </div>
-                        <button type="button" className="ghost-btn" onClick={clearViewFilters}>
-                            Limpar filtros
-                        </button>
                     </div>
 
                     <div className="report-actions">
@@ -1474,9 +2306,6 @@ function App() {
                         </button>
                         <button type="button" onClick={handleExportExcel} disabled={!viewedRecords.length}>
                             Exportar Excel
-                        </button>
-                        <button type="button" className="danger" onClick={requestClearRecords} disabled={!filteredRecords.length}>
-                            Limpar registros
                         </button>
                     </div>
 
@@ -1574,6 +2403,7 @@ function App() {
                         )}
                     </div>
                 </section>
+                ) : null}
             </main>
 
             <footer className="app-footer">

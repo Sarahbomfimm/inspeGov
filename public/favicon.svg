@@ -1,19 +1,30 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
   <defs>
-    <linearGradient id="base" x1="32" y1="26" x2="220" y2="224" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#081521" />
-      <stop offset="1" stop-color="#15486a" />
-    </linearGradient>
-    <linearGradient id="gold" x1="80" y1="56" x2="184" y2="196" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ffd57a" />
-      <stop offset="1" stop-color="#d7a42e" />
+    <linearGradient id="logo-grad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#4f46e5" />
+      <stop offset="40%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#38bdf8" />
     </linearGradient>
   </defs>
 
-  <rect x="18" y="18" width="220" height="220" rx="56" fill="url(#base)" />
-  <circle cx="128" cy="128" r="62" fill="none" stroke="#e9f4ff" stroke-width="14" opacity="0.96" />
-  <path d="M128 58l14 40 42 16-42 16-14 40-14-40-42-16 42-16 14-40Z" fill="url(#gold)" />
-  <circle cx="128" cy="128" r="15" fill="#081521" stroke="#f3cb6a" stroke-width="8" />
-  <path d="M128 88v80M88 128h80" stroke="#e9f4ff" stroke-width="10" stroke-linecap="round" opacity="0.92" />
-  <rect x="18" y="18" width="220" height="220" rx="56" fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="2" />
+  <!-- Torso / Body -->
+  <path d="M 21,48 C 20,38 26,32 34,32 C 42,32 48,38 47,48 C 39,51 29,51 21,48 Z" fill="url(#logo-grad)" />
+
+  <!-- Head -->
+  <circle cx="34" cy="20" r="10.5" fill="url(#logo-grad)" />
+
+  <!-- Checkmark -->
+  <path d="M 4,53 C 13,50 20,53 28,85 C 57,41 78,19 96,7 C 71,29 48,54 32,68 C 22,59 13,55 4,53 Z" fill="url(#logo-grad)" />
+
+  <!-- Slanted shape next to building -->
+  <path d="M 49,91 H 66 V 77 L 49,83 Z" fill="url(#logo-grad)" />
+
+  <!-- Building -->
+  <path d="M 72,91 H 91 V 47 H 72 Z" fill="url(#logo-grad)" />
+
+  <!-- Building Windows -->
+  <rect x="76" y="52" width="4" height="4" rx="0.5" fill="#ffffff" />
+  <rect x="83" y="52" width="4" height="4" rx="0.5" fill="#ffffff" />
+  <rect x="76" y="60" width="4" height="4" rx="0.5" fill="#ffffff" />
+  <rect x="83" y="60" width="4" height="4" rx="0.5" fill="#ffffff" />
 </svg>
