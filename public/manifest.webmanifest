@@ -1,0 +1,16 @@
+{
+  "name": "InspeGov — Gestão de Governança",
+  "short_name": "InspeGov",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f4f5f7",
+  "theme_color": "#0177fb",
+  "icons": [
+    {
+      "src": "./favicon.svg?v=20261123",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -225,7 +225,7 @@ function App() {
     const [selectedHotel, setSelectedHotel] = useState<HotelKey | null>(null)
     const [theme, setTheme] = useState<'light' | 'dark'>(() => {
         const saved = localStorage.getItem('inspegov-theme')
-        return saved === 'light' || saved === 'dark' ? saved : 'dark'
+        return saved === 'light' || saved === 'dark' ? saved : 'light'
     })
 
     useEffect(() => {
@@ -1318,10 +1318,6 @@ function App() {
         setIsSidebarOpen(false)
     }
 
-    const openInspectionMenu = () => {
-        setWorkspaceView('inspections')
-    }
-
     const navigateToInspectionReport = () => {
         setWorkspaceView('inspections')
         setInspectionSection('report')
@@ -1690,6 +1686,15 @@ function App() {
         )
     }
 
+    const selectedHotelName = selectedHotel === 'express' ? 'Pajuçara Express' : 'Pajuçara Praia Hotel'
+    const selectedHotelInitials = selectedHotel === 'express' ? 'PE' : 'PP'
+    const isPendingTabActive =
+        workspaceView === 'inspections' &&
+        inspectionSection === 'report' &&
+        isFilterActive &&
+        viewStatus === 'Retrabalho' &&
+        viewReworkExecution === 'Pendentes'
+
     return (
         <div className={`app-shell ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
             <div className="notifications" aria-live="polite">
@@ -1700,61 +1705,42 @@ function App() {
                 ))}
             </div>
 
-            <header
-                className="topbar"
-                role="button"
-                tabIndex={0}
-                onClick={scrollToTop}
-                onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        scrollToTop()
-                    }
-                }}
-            >
-                <div>
-                    <p className="kicker">InspeGov</p>
-                    <h1>Gestão de Governança</h1>
-                    <p className="subtitle">
-                        {selectedHotel === 'express' ? 'Pajuçara Express' : 'Pajuçara Praia Hotel'}
-                    </p>
+            <header className="mobile-topbar">
+                <div className="mobile-topbar-left">
+                    <button
+                        ref={menuTriggerRef}
+                        type="button"
+                        className={`mobile-menu-btn ${isSidebarOpen ? 'active' : ''}`}
+                        onClick={() => setIsSidebarOpen((current) => !current)}
+                        aria-expanded={isSidebarOpen}
+                        aria-controls="quick-sidebar"
+                        aria-label="Abrir menu"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="3" y1="6" x2="21" y2="6" />
+                            <line x1="3" y1="12" x2="21" y2="12" />
+                            <line x1="3" y1="18" x2="21" y2="18" />
+                        </svg>
+                    </button>
+                    <button type="button" className="mobile-brand-btn" onClick={scrollToTop}>
+                        <span className="braver-mark braver-mark-sm" aria-hidden="true" />
+                        <span className="mobile-brand-text">
+                            <strong>InspeGov</strong>
+                            <small>{selectedHotelName}</small>
+                        </span>
+                    </button>
                 </div>
-                <div className="topbar-actions" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
-                    <div className="user-profile">
-                        <div className="avatar">{userInitials}</div>
-                        <div className="user-info">
-                            <strong>{userDisplayName}</strong>
-                            <span>{loggedUserEmail || 'Unidade Central'}</span>
-                        </div>
-                        <button type="button" className="theme-toggle" onClick={toggleTheme} aria-label="Alternar tema">
-                            {theme === 'light' ? (
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-                            ) : (
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-                            )}
-                        </button>
-                    </div>
+                <div className="mobile-topbar-right">
+                    <button type="button" className="theme-toggle" onClick={toggleTheme} aria-label="Alternar tema">
+                        {theme === 'light' ? (
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                        ) : (
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                        )}
+                    </button>
+                    <div className="avatar avatar-sm" title={userDisplayName}>{userInitials}</div>
                 </div>
             </header>
-
-            <nav className="menu-trigger-row" aria-label="Menu rápido">
-                <button
-                    ref={menuTriggerRef}
-                    type="button"
-                    className={`menu-trigger-button ${isSidebarOpen ? 'active' : ''}`}
-                    onClick={() => setIsSidebarOpen((current) => !current)}
-                    aria-expanded={isSidebarOpen}
-                    aria-controls="quick-sidebar"
-                    aria-label="Abrir atalhos operacionais"
-                >
-                    <span className="menu-lines" aria-hidden="true">
-                        <span />
-                        <span />
-                        <span />
-                    </span>
-                    <span>Operações</span>
-                </button>
-            </nav>
 
             {isSidebarOpen ? (
                 <div className="sidebar-backdrop" onClick={() => setIsSidebarOpen(false)} aria-hidden="true" />
@@ -1764,16 +1750,18 @@ function App() {
                 ref={quickSidebarRef}
                 id="quick-sidebar"
                 className={`quick-sidebar ${isSidebarOpen ? 'open' : ''}`}
-                aria-hidden={!isSidebarOpen}
             >
                 <div className="quick-sidebar-inner">
                     <div className="sidebar-brand-row">
-                        <span className="sidebar-brand-logo">InspeGov</span>
+                        <div className="braver-logo">
+                            <span className="braver-mark" aria-hidden="true" />
+                            <span className="sidebar-brand-logo">InspeGov</span>
+                        </div>
                         <button
                             type="button"
                             className="sidebar-collapse-btn-desktop"
                             onClick={toggleSidebarCollapsed}
-                            aria-label={isSidebarCollapsed ? "Expandir menu" : "Recuar menu"}
+                            aria-label={isSidebarCollapsed ? 'Expandir menu' : 'Recuar menu'}
                         >
                             {isSidebarCollapsed ? (
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
@@ -1781,82 +1769,128 @@ function App() {
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
                             )}
                         </button>
+                        <button
+                            type="button"
+                            className="sidebar-close-btn"
+                            onClick={() => setIsSidebarOpen(false)}
+                            aria-label="Fechar menu"
+                        >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
                     </div>
-                    <button 
-                        type="button" 
-                        className="sidebar-close-btn" 
-                        onClick={() => setIsSidebarOpen(false)}
-                        aria-label="Fechar menu"
+
+                    <button
+                        type="button"
+                        className="sidebar-unit-card"
+                        onClick={() => {
+                            setSelectedHotel(null)
+                            setIsSidebarOpen(false)
+                        }}
+                        title="Trocar unidade"
                     >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="18" y1="6" x2="6" y2="18"></line>
-                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        <span className="sidebar-unit-avatar">{selectedHotelInitials}</span>
+                        <span className="sidebar-unit-meta">
+                            <strong>{selectedHotelName}</strong>
+                            <span>{currentMonthRecords.length} inspeções no mês</span>
+                        </span>
+                        <svg className="sidebar-unit-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="6 9 12 15 18 9" />
                         </svg>
                     </button>
-                    <button
-                        type="button"
-                        className={workspaceView === 'overview' ? 'quick-link active' : 'quick-link'}
-                        onClick={navigateToOverview}
-                    >
-                        <span className="quick-link-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M4 19.5H20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                                <path d="M7 16V10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                                <path d="M12 16V6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                                <path d="M17 16V12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                            </svg>
-                        </span>
-                        <span>Visão geral</span>
-                    </button>
+
+                    <div className="sidebar-section-group">
+                        <p className="sidebar-section-title">MENU PRINCIPAL</p>
+                        <button
+                            type="button"
+                            className={workspaceView === 'overview' ? 'quick-link active' : 'quick-link'}
+                            onClick={navigateToOverview}
+                        >
+                            <span className="quick-link-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M3 10.5L12 3L21 10.5V20C21 20.5523 20.5523 21 20 21H4C3.44772 21 3 20.5523 3 20V10.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                                    <path d="M9 21V13H15V21" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                                </svg>
+                            </span>
+                            <span className="quick-link-label">Visão geral</span>
+                        </button>
+
+                        <button
+                            type="button"
+                            className={workspaceView === 'inspections' && inspectionSection === 'report' ? 'quick-link active' : 'quick-link'}
+                            onClick={navigateToInspectionReport}
+                        >
+                            <span className="quick-link-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M7 4.5H14L18.5 9V19.5H7V4.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                                    <path d="M14 4.5V9H18.5" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                                    <path d="M9.5 12H15.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                    <path d="M9.5 15H15.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                </svg>
+                            </span>
+                            <span className="quick-link-label">Relatório</span>
+                            {monthStats.retrabalhoPendente > 0 ? (
+                                <span className="nav-counter">{monthStats.retrabalhoPendente}</span>
+                            ) : null}
+                        </button>
+
+                        <button
+                            type="button"
+                            className={workspaceView === 'inspections' && inspectionSection === 'register' ? 'quick-link active' : 'quick-link'}
+                            onClick={navigateToInspectionRegister}
+                        >
+                            <span className="quick-link-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <rect x="4" y="4" width="16" height="16" rx="4" stroke="currentColor" strokeWidth="1.8" />
+                                    <path d="M12 8V16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                    <path d="M8 12H16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                                </svg>
+                            </span>
+                            <span className="quick-link-label">Registrar inspeção</span>
+                        </button>
+                    </div>
+
+                    <div className="sidebar-section-group">
+                        <p className="sidebar-section-title">UNIDADES</p>
+                        <button
+                            type="button"
+                            className={selectedHotel === 'praia' ? 'quick-sublink active' : 'quick-sublink'}
+                            onClick={() => {
+                                setSelectedHotel('praia')
+                                setIsSidebarOpen(false)
+                            }}
+                        >
+                            <span className="workspace-dot dot-blue" aria-hidden="true" />
+                            <span>Pajuçara Praia Hotel</span>
+                        </button>
+                        <button
+                            type="button"
+                            className={selectedHotel === 'express' ? 'quick-sublink active' : 'quick-sublink'}
+                            onClick={() => {
+                                setSelectedHotel('express')
+                                setIsSidebarOpen(false)
+                            }}
+                        >
+                            <span className="workspace-dot dot-purple" aria-hidden="true" />
+                            <span>Pajuçara Express</span>
+                        </button>
+                    </div>
 
                     <button
                         type="button"
-                        className={workspaceView === 'inspections' ? 'quick-link active' : 'quick-link'}
-                        onClick={openInspectionMenu}
+                        className="sidebar-new-cta"
+                        onClick={navigateToInspectionRegister}
                     >
-                        <span className="quick-link-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M7 4.5H14L18.5 9V19.5H7V4.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-                                <path d="M14 4.5V9H18.5" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-                                <path d="M9.5 12H15.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                                <path d="M9.5 15H15.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                        <span className="sidebar-new-cta-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <line x1="12" y1="5" x2="12" y2="19" />
+                                <line x1="5" y1="12" x2="19" y2="12" />
                             </svg>
                         </span>
-                        <span>Inspeções</span>
+                        <span>Nova Inspeção</span>
                     </button>
-
-                    {workspaceView === 'inspections' ? (
-                        <div className="quick-submenu">
-                            <button
-                                type="button"
-                                className={inspectionSection === 'report' ? 'quick-sublink active' : 'quick-sublink'}
-                                onClick={navigateToInspectionReport}
-                            >
-                                <span className="quick-link-icon" aria-hidden="true">
-                                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                        <path d="M5 19.5H19" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                                        <path d="M8 16V11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                                        <path d="M12 16V8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                                        <path d="M16 16V13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                                    </svg>
-                                </span>
-                                <span>Relatório de Inspeções</span>
-                            </button>
-                            <button
-                                type="button"
-                                className={inspectionSection === 'register' ? 'quick-sublink active' : 'quick-sublink'}
-                                onClick={navigateToInspectionRegister}
-                            >
-                                <span className="quick-link-icon" aria-hidden="true">
-                                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                        <path d="M12 5V19" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                                        <path d="M5 12H19" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                                    </svg>
-                                </span>
-                                <span>Registrar inspeção</span>
-                            </button>
-                        </div>
-                    ) : null}
 
                     <div className="sidebar-footer-profile">
                         <div className="user-profile-sidebar">
@@ -1868,161 +1902,211 @@ function App() {
                         </div>
                         <div className="sidebar-actions-row">
                             <button type="button" className="sidebar-switch-btn" onClick={() => setSelectedHotel(null)}>Trocar unidade</button>
-                            <button type="button" className="sidebar-logout-btn" onClick={handleLogout}>Sair da conta</button>
+                            <button type="button" className="sidebar-logout-btn" onClick={handleLogout}>Sair</button>
                         </div>
                     </div>
                 </div>
             </aside>
 
-            <main className={`content-grid ${workspaceView === 'overview' ? 'view-overview' : inspectionSection === 'report' ? 'view-inspections-report' : 'view-inspections-register'}`}>
+            <div className="workspace-surface">
+                <section className="braver-section-header">
+                    <div className="braver-header-top">
+                        <div className="braver-header-copy">
+                            <h1 className="braver-header-title">
+                                <span>{selectedHotelName}</span>
+                                <span className="braver-hotel-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <rect x="4" y="3" width="16" height="18" rx="3.5" stroke="currentColor" strokeWidth="2.4" />
+                                        <path d="M9 21V16.5C9 15.6716 9.67157 15 10.5 15H13.5C14.3284 15 15 15.6716 15 16.5V21" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+                                        <path d="M8.5 7.5H10" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+                                        <path d="M14 7.5H15.5" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+                                        <path d="M8.5 11H10" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+                                        <path d="M14 11H15.5" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+                                    </svg>
+                                </span>
+                            </h1>
+                            <p className="braver-header-sub">
+                                Governança operacional · {currentMonthLabel}
+                            </p>
+                        </div>
+                        <div className="braver-header-actions">
+                            <div className="braver-avatar-cluster" aria-label="Equipe e unidade">
+                                <span className="avatar-pill">{userInitials}</span>
+                                <span className="avatar-pill purple">{monthStats.total}</span>
+                            </div>
+                            <button
+                                type="button"
+                                className="braver-circle-add"
+                                onClick={navigateToInspectionRegister}
+                                title="Registrar nova inspeção"
+                                aria-label="Registrar nova inspeção"
+                            >
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <line x1="12" y1="5" x2="12" y2="19" />
+                                    <line x1="5" y1="12" x2="19" y2="12" />
+                                </svg>
+                            </button>
+                            <button type="button" className="theme-toggle desktop-only-toggle" onClick={toggleTheme} aria-label="Alternar tema">
+                                {theme === 'light' ? (
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                                ) : (
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+
+                    <nav className="braver-tabs" aria-label="Navegação da unidade">
+                        <button
+                            type="button"
+                            className={workspaceView === 'overview' ? 'braver-tab active' : 'braver-tab'}
+                            onClick={navigateToOverview}
+                        >
+                            Visão geral
+                        </button>
+                        <button
+                            type="button"
+                            className={workspaceView === 'inspections' && inspectionSection === 'report' && !isPendingTabActive ? 'braver-tab active' : 'braver-tab'}
+                            onClick={() => {
+                                clearViewFilters()
+                                navigateToInspectionReport()
+                            }}
+                        >
+                            Relatório
+                            <span className="braver-tab-badge">{filteredRecords.length}</span>
+                        </button>
+                        <button
+                            type="button"
+                            className={isPendingTabActive ? 'braver-tab active' : 'braver-tab'}
+                            onClick={() => goToCurrentMonthReport(true)}
+                        >
+                            Pendências
+                            {monthStats.retrabalhoPendente > 0 ? (
+                                <span className="braver-tab-badge warn">{monthStats.retrabalhoPendente}</span>
+                            ) : null}
+                        </button>
+                        <button
+                            type="button"
+                            className={workspaceView === 'inspections' && inspectionSection === 'register' ? 'braver-tab active' : 'braver-tab'}
+                            onClick={navigateToInspectionRegister}
+                        >
+                            Registrar
+                        </button>
+                    </nav>
+                </section>
+
+                <main className={`content-grid ${workspaceView === 'overview' ? 'view-overview' : inspectionSection === 'report' ? 'view-inspections-report' : 'view-inspections-register'}`}>
                 {workspaceView === 'overview' ? (
                     <>
-                <section className="executive-dashboard">
-                    <article className="executive-hero-card">
-                        <p className="kicker">Radar Executivo</p>
-                        <h2>Painel do mês</h2>
-                        <p className="month-highlight">{currentMonthLabel}</p>
-
-                        <div className="executive-score-block" role="status" aria-live="polite">
-                            <div className="executive-score-top">
-                                <span>Score operacional</span>
-                                <strong>{dashboardAnalytics.operationalScore}%</strong>
-                            </div>
-                            <div className="executive-score-bar" aria-hidden="true">
-                                <span style={{ width: `${dashboardAnalytics.operationalScore}%` }} />
-                            </div>
-                            <div className="executive-score-foot">
-                                <span>Execução: {dashboardAnalytics.executionRate}%</span>
-                                <span>Média/dia: {dashboardAnalytics.averagePerDay.toFixed(1)}</span>
-                            </div>
-                        </div>
-
-                        <div className="executive-kpi-strip" aria-label="Indicadores executivos de desempenho">
-                            <article className="executive-kpi-pill">
-                                <span>Meta mínima</span>
-                                <strong>{dashboardAnalytics.targetConformity}%</strong>
-                            </article>
-
-                            <article className={`executive-kpi-pill ${dashboardAnalytics.targetReached ? 'good' : 'warning'}`}>
-                                <span>Status da meta</span>
-                                <strong>{dashboardAnalytics.targetReached ? 'Atingida' : 'Abaixo da meta'}</strong>
-                            </article>
-
-                            <article className="executive-kpi-pill">
-                                <span>Variação semanal</span>
-                                <strong>{dashboardAnalytics.volumeDeltaPercent >= 0 ? '+' : ''}{dashboardAnalytics.volumeDeltaPercent}%</strong>
-                            </article>
-
-                            <article className={`executive-kpi-pill ${dashboardAnalytics.pendingPressure === 'Atenção alta' ? 'danger' : dashboardAnalytics.pendingPressure === 'Atenção moderada' ? 'warning' : 'good'}`}>
-                                <span>Atenção</span>
-                                <strong>{dashboardAnalytics.pendingPressure}</strong>
-                            </article>
-                        </div>
-
-                        <div className="executive-actions">
-                            <button type="button" className="executive-action-btn" onClick={() => goToCurrentMonthReport(false)}>
-                                Ver relatório do mês
+                        <section className="stats-row" aria-label="Resumo do mês">
+                            <button
+                                type="button"
+                                className="stat-card interactive"
+                                onClick={() => goToCurrentMonthReport(false)}
+                            >
+                                <span className="stat-label">Inspeções no mês</span>
+                                <strong className="stat-value">{monthStats.total}</strong>
+                                <span className="stat-foot">
+                                    Média de {dashboardAnalytics.averagePerDay.toFixed(1)}/dia
+                                </span>
                             </button>
-                            <button type="button" className="executive-action-btn warning" onClick={() => goToCurrentMonthReport(true)}>
-                                Ver só pendências
-                            </button>
-                        </div>
-                    </article>
 
-                    <div className="executive-side-grid">
-                        <article className="insight-card trend-card">
-                            <div className="insight-head">
-                                <h3>Últimos 7 dias</h3>
-                                <span>pico: {dashboardAnalytics.maxTotal} inspeções</span>
+                            <div className="stat-card">
+                                <span className="stat-label">Conformidade</span>
+                                <strong className="stat-value">{monthStats.conformidadePercentual}%</strong>
+                                <div className="progress-bar-container">
+                                    <div
+                                        className="progress-fill"
+                                        style={{ width: `${monthStats.conformidadePercentual}%` }}
+                                    />
+                                </div>
+                                <span className="stat-foot">
+                                    {monthStats.conformes} conformes · meta {dashboardAnalytics.targetConformity}%
+                                </span>
                             </div>
-                            <div className="trend-chart" aria-label="Volume diário das inspeções nos últimos sete dias">
-                                {dashboardAnalytics.trend.map((day) => (
-                                    <div key={day.date} className="trend-column">
-                                        <span
-                                            className={`trend-bar ${day.retrabalho > day.conformes ? 'critical' : ''}`}
-                                            style={{ height: `${day.height}%` }}
-                                            title={`${day.label}: ${day.total} inspeções (${day.retrabalho} retrabalhos)`}
-                                        />
-                                        <strong>{day.total}</strong>
-                                        <small>{day.label}</small>
+
+                            <button
+                                type="button"
+                                className={`stat-card danger interactive ${isFilterActive && viewStatus === 'Retrabalho' && viewReworkExecution === 'Todos' ? 'active' : ''}`}
+                                onClick={showAllReworks}
+                            >
+                                <span className="stat-label">Retrabalhos</span>
+                                <strong className="stat-value">{monthStats.retrabalho}</strong>
+                                <span className="stat-foot">
+                                    {monthStats.retrabalhoExecutado} exec. · {monthStats.retrabalhoPendente} pend.
+                                </span>
+                            </button>
+
+                            <button
+                                type="button"
+                                className={`stat-card warning interactive ${isFilterActive && viewStatus === 'Retrabalho' && viewReworkExecution === 'Pendentes' ? 'active' : ''}`}
+                                onClick={showPendingReworks}
+                            >
+                                <span className="stat-label">Pendências abertas</span>
+                                <strong className="stat-value">{monthStats.retrabalhoPendente}</strong>
+                                <span className="stat-foot">Ver pendentes →</span>
+                            </button>
+                        </section>
+
+                        <section className="overview-panels-grid">
+                            <article className="insight-card trend-card">
+                                <div className="insight-head">
+                                    <h3>Últimos 7 dias</h3>
+                                    <span>Pico: {dashboardAnalytics.maxTotal}</span>
+                                </div>
+                                <div className="trend-chart" aria-label="Volume diário das inspeções nos últimos sete dias">
+                                    {dashboardAnalytics.trend.map((day) => (
+                                        <div key={day.date} className="trend-column">
+                                            <span
+                                                className={`trend-bar ${day.total === 0 ? 'empty' : day.retrabalho > day.conformes ? 'critical' : ''}`}
+                                                style={{ height: day.total === 0 ? '6px' : `${day.height}%` }}
+                                                title={`${day.label}: ${day.total} inspeções (${day.retrabalho} retrabalhos)`}
+                                            />
+                                            <strong>{day.total}</strong>
+                                            <small>{day.label}</small>
+                                        </div>
+                                    ))}
+                                </div>
+                            </article>
+
+                            <article className="insight-card priority-card">
+                                <div className="insight-head">
+                                    <h3>Prioridades pendentes</h3>
+                                    {dashboardAnalytics.priorityRooms.length > 0 ? (
+                                        <button
+                                            type="button"
+                                            className="insight-link-btn"
+                                            onClick={() => goToCurrentMonthReport(true)}
+                                        >
+                                            Ver todas →
+                                        </button>
+                                    ) : (
+                                        <span>em dia</span>
+                                    )}
+                                </div>
+
+                                {!dashboardAnalytics.priorityRooms.length ? (
+                                    <p className="priority-empty">Nenhuma pendência crítica no período.</p>
+                                ) : (
+                                    <div className="priority-list" role="list" aria-label="Lista de pendências prioritárias">
+                                        {dashboardAnalytics.priorityRooms.map((room) => (
+                                            <button
+                                                key={room.id}
+                                                type="button"
+                                                className="priority-item"
+                                                role="listitem"
+                                                onClick={() => navigateToPriorityUh(room.uh)}
+                                                title={`Abrir relatório da UH ${room.uh}`}
+                                            >
+                                                <strong>UH {room.uh}</strong>
+                                                <span>{room.housekeeper}</span>
+                                                <em>{room.daysPending}d</em>
+                                            </button>
+                                        ))}
                                     </div>
-                                ))}
-                            </div>
-                        </article>
-
-                        <article className="insight-card highlights-card">
-                            <div className="insight-head">
-                                <h3>Leitura rápida</h3>
-                                <span>agora</span>
-                            </div>
-                            <ul>
-                                <li>
-                                    UH crítica: <strong>{dashboardAnalytics.topRiskUh ? `UH ${dashboardAnalytics.topRiskUh[0]}` : '-'}</strong>
-                                </li>
-                                <li>
-                                    Pendências abertas: <strong>{monthStats.retrabalhoPendente}</strong>
-                                </li>
-                                <li>
-                                    Maior pendência: <strong>{dashboardAnalytics.oldestPendingDays} dia(s)</strong>
-                                </li>
-                            </ul>
-                        </article>
-                    </div>
-
-                    <article className="insight-card priority-card">
-                        <div className="insight-head">
-                            <h3>Prioridades imediatas</h3>
-                            <span>retrabalho pendente</span>
-                        </div>
-
-                        {!dashboardAnalytics.priorityRooms.length ? (
-                            <p className="priority-empty">Nenhuma pendência crítica no período. Excelente execução!</p>
-                        ) : (
-                            <div className="priority-list" role="list" aria-label="Lista de pendências prioritárias">
-                                {dashboardAnalytics.priorityRooms.map((room) => (
-                                    <button
-                                        key={room.id}
-                                        type="button"
-                                        className="priority-item"
-                                        role="listitem"
-                                        onClick={() => navigateToPriorityUh(room.uh)}
-                                        title={`Abrir relatório da UH ${room.uh}`}
-                                    >
-                                        <strong>UH {room.uh}</strong>
-                                        <span>{room.housekeeper}</span>
-                                        <em>{room.daysPending} dia(s) em aberto</em>
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </article>
-                </section>
-
-                <section className="stats-row">
-                    <div className="stat-card">
-                        <span className="stat-label">Inspeções Totais</span>
-                        <strong className="stat-value">{monthStats.total}</strong>
-                        <span className="stat-foot">
-                            {currentMonthLabel}
-                        </span>
-                    </div>
-                    <div className="stat-card">
-                        <span className="stat-label">Conformidade</span>
-                        <strong className="stat-value">{monthStats.conformidadePercentual}%</strong>
-                        <div className="progress-bar-container"><div className="progress-fill" style={{ width: `${monthStats.conformidadePercentual}%` }}></div></div>
-                        <span className="stat-foot">{monthStats.conformes} conformes</span>
-                    </div>
-                    <button type="button" className={`stat-card danger interactive ${isFilterActive && viewStatus === 'Retrabalho' && viewReworkExecution === 'Todos' ? 'active' : ''}`} onClick={showAllReworks}>
-                        <span className="stat-label">Retrabalhos totais</span>
-                        <strong className="stat-value">{monthStats.retrabalho}</strong>
-                        <span className="stat-foot">{monthStats.retrabalhoExecutado} exec. | {monthStats.retrabalhoPendente} pend.</span>
-                    </button>
-                    <button type="button" className={`stat-card warning interactive ${isFilterActive && viewStatus === 'Retrabalho' && viewReworkExecution === 'Pendentes' ? 'active' : ''}`} onClick={showPendingReworks}>
-                        <span className="stat-label">Pendências abertas</span>
-                        <strong className="stat-value">{monthStats.retrabalhoPendente}</strong>
-                        <span className="stat-foot">Clique para listar apenas os pendentes</span>
-                    </button>
-                </section>
+                                )}
+                            </article>
+                        </section>
                     </>
                 ) : null}
 
@@ -2406,9 +2490,82 @@ function App() {
                 ) : null}
             </main>
 
-            <footer className="app-footer">
-                <p>© {new Date().getFullYear()} Sarah Bomfim</p>
-            </footer>
+                <footer className="app-footer">
+                    <p>© {new Date().getFullYear()} Sarah Bomfim · InspeGov</p>
+                </footer>
+            </div>
+
+            {!(workspaceView === 'inspections' && inspectionSection === 'register') ? (
+                <button
+                    type="button"
+                    className="braver-fab"
+                    onClick={navigateToInspectionRegister}
+                    aria-label="Nova inspeção"
+                >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="4" />
+                        <line x1="12" y1="8" x2="12" y2="16" />
+                        <line x1="8" y1="12" x2="16" y2="12" />
+                    </svg>
+                    <span>Nova Inspeção</span>
+                </button>
+            ) : null}
+
+            <nav className="mobile-bottom-nav" aria-label="Navegação mobile">
+                <button
+                    type="button"
+                    className={workspaceView === 'overview' ? 'mobile-nav-item active' : 'mobile-nav-item'}
+                    onClick={navigateToOverview}
+                >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 10.5L12 3L21 10.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-9.5Z" />
+                        <path d="M9 21v-8h6v8" />
+                    </svg>
+                    <span>Visão geral</span>
+                </button>
+                <button
+                    type="button"
+                    className={workspaceView === 'inspections' && inspectionSection === 'report' ? 'mobile-nav-item active' : 'mobile-nav-item'}
+                    onClick={navigateToInspectionReport}
+                >
+                    <span className="mobile-nav-icon-wrap">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <polyline points="14 2 14 8 20 8" />
+                            <line x1="8" y1="13" x2="16" y2="13" />
+                            <line x1="8" y1="17" x2="13" y2="17" />
+                        </svg>
+                        {monthStats.retrabalhoPendente > 0 ? (
+                            <span className="mobile-nav-badge">{monthStats.retrabalhoPendente}</span>
+                        ) : null}
+                    </span>
+                    <span>Relatório</span>
+                </button>
+                <button
+                    type="button"
+                    className={workspaceView === 'inspections' && inspectionSection === 'register' ? 'mobile-nav-item active' : 'mobile-nav-item'}
+                    onClick={navigateToInspectionRegister}
+                >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="9" />
+                        <line x1="12" y1="8" x2="12" y2="16" />
+                        <line x1="8" y1="12" x2="16" y2="12" />
+                    </svg>
+                    <span>Registrar</span>
+                </button>
+                <button
+                    type="button"
+                    className="mobile-nav-item"
+                    onClick={() => setSelectedHotel(null)}
+                >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 21h18" />
+                        <path d="M5 21V7l7-4 7 4v14" />
+                        <path d="M9 21v-6h6v6" />
+                    </svg>
+                    <span>Unidades</span>
+                </button>
+            </nav>
 
             {editModalOpen ? (
                 <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Editar inspeção">

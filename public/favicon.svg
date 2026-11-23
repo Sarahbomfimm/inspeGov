@@ -1,30 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
-  <defs>
-    <linearGradient id="logo-grad" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#4f46e5" />
-      <stop offset="40%" stop-color="#6366f1" />
-      <stop offset="100%" stop-color="#38bdf8" />
-    </linearGradient>
-  </defs>
-
-  <!-- Torso / Body -->
-  <path d="M 21,48 C 20,38 26,32 34,32 C 42,32 48,38 47,48 C 39,51 29,51 21,48 Z" fill="url(#logo-grad)" />
-
-  <!-- Head -->
-  <circle cx="34" cy="20" r="10.5" fill="url(#logo-grad)" />
-
-  <!-- Checkmark -->
-  <path d="M 4,53 C 13,50 20,53 28,85 C 57,41 78,19 96,7 C 71,29 48,54 32,68 C 22,59 13,55 4,53 Z" fill="url(#logo-grad)" />
-
-  <!-- Slanted shape next to building -->
-  <path d="M 49,91 H 66 V 77 L 49,83 Z" fill="url(#logo-grad)" />
-
-  <!-- Building -->
-  <path d="M 72,91 H 91 V 47 H 72 Z" fill="url(#logo-grad)" />
-
-  <!-- Building Windows -->
-  <rect x="76" y="52" width="4" height="4" rx="0.5" fill="#ffffff" />
-  <rect x="83" y="52" width="4" height="4" rx="0.5" fill="#ffffff" />
-  <rect x="76" y="60" width="4" height="4" rx="0.5" fill="#ffffff" />
-  <rect x="83" y="60" width="4" height="4" rx="0.5" fill="#ffffff" />
+  <rect width="100" height="100" rx="22" fill="#ffffff" />
+  <rect
+    x="14"
+    y="32"
+    width="72"
+    height="36"
+    rx="18"
+    fill="none"
+    stroke="#0177fb"
+    stroke-width="11.5"
+  />
 </svg>
